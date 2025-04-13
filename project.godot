@@ -24,6 +24,7 @@ NetworkManager="*res://src/Networking/NetworkManager.cs"
 window/size/viewport_width=720
 window/size/viewport_height=720
 window/size/initial_position_type=0
+window/size/initial_position=Vector2i(50, 50)
 window/size/window_width_override=1280
 window/size/window_height_override=720
 
