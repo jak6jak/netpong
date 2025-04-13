@@ -15,11 +15,15 @@ run/main_scene="res://src/Main.tscn"
 config/features=PackedStringArray("4.4", "C#", "Mobile")
 config/icon="res://icon.png"
 
+[autoload]
+
+NetworkManager="*res://src/Networking/NetworkManager.cs"
+
 [display]
 
 window/size/viewport_width=720
 window/size/viewport_height=720
-window/size/initial_position_type=3
+window/size/initial_position_type=0
 window/size/window_width_override=1280
 window/size/window_height_override=720
 

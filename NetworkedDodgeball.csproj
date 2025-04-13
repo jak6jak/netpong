@@ -15,6 +15,9 @@
     <!--
       <CompilerGeneratedFilesOutputPath>.generated</CompilerGeneratedFilesOutputPath>
     -->
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+    <!-- If needed, also specify the platform target -->
+    <PlatformTarget>x64</PlatformTarget>
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Title>NetworkedDodgeball</Title>
@@ -27,6 +30,8 @@
     <DefaultItemExcludes Condition="'$(Configuration)' == 'ExportRelease'">
       $(DefaultItemExcludes);test/**/*
     </DefaultItemExcludes>
+    <Configurations>Debug;ExportDebug;ExportRelease</Configurations>
+    <Platforms>AnyCPU;win-x64;x64</Platforms>
   </PropertyGroup>
   <ItemGroup Condition=" '$(Configuration)' == 'Debug' or '$(Configuration)' == 'ExportDebug' ">
     <!-- Test dependencies go here! -->
@@ -45,5 +50,23 @@
   <ItemGroup>
     <!-- Production dependencies go here! -->
     <PackageReference Include="Chickensoft.GameTools" Version="2.0.6" />
+    <Compile Include="..\SDK\Source\Core\**\*.cs">
+      <Link>SDK\Core\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\SDK\Source\Generated\**\*.cs">
+      <Link>SDK\Generated\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+    <Compile Include="..\SDK\Source\Overrides\**\*.cs">
+      <Link>SDK\Overrides\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\SDK\Bin\EOSSDK-Win64-Shipping.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include=".env" />
+    <Content Include=".env.example" />
   </ItemGroup>
 </Project>

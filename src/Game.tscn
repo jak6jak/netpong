@@ -1,6 +1,4 @@
-[gd_scene load_steps=2 format=3 uid="uid://cywpu6lxdjhuu"]
-
-[ext_resource type="Script" uid="uid://c8774xvuj0inr" path="res://src/Game.cs" id="1_17mmo"]
+[gd_scene format=3 uid="uid://cywpu6lxdjhuu"]
 
 [node name="Control" type="Control"]
 layout_mode = 3
@@ -9,7 +7,6 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_17mmo")
 
 [node name="CenterContainer" type="CenterContainer" parent="."]
 layout_mode = 1
@@ -19,12 +16,27 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="VBoxContainer" type="VBoxContainer" parent="CenterContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="CenterContainer"]
 layout_mode = 2
 
-[node name="TestButton" type="Button" parent="CenterContainer/VBoxContainer"]
+[node name="VBoxContainer" type="VBoxContainer" parent="CenterContainer/HBoxContainer"]
+layout_mode = 2
+
+[node name="CreateGame" type="Button" parent="CenterContainer/HBoxContainer/VBoxContainer"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Test Button"
+text = "Create Game"
 
-[connection signal="pressed" from="CenterContainer/VBoxContainer/TestButton" to="." method="OnTestButtonPressed"]
+[node name="JoinGame" type="Button" parent="CenterContainer/HBoxContainer/VBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Join Game"
+
+[node name="PlayerList" type="ItemList" parent="CenterContainer/HBoxContainer"]
+unique_name_in_owner = true
+layout_mode = 2
+auto_width = true
+auto_height = true
+
+[connection signal="pressed" from="CenterContainer/HBoxContainer/VBoxContainer/CreateGame" to="." method="OnCreateGamePressed"]
+[connection signal="pressed" from="CenterContainer/HBoxContainer/VBoxContainer/JoinGame" to="." method="OnJoinGamePressed"]

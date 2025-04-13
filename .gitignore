@@ -2,12 +2,12 @@ nupkg/
 
 coverage/*
 !coverage/.gdignore
-
+.env
 .godot/
 bin/
 obj/
 .generated/
 .vs/
 .DS_Store
-
+/src/EOSSDK/
 *.translation

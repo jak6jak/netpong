@@ -21,7 +21,7 @@ public partial class Main : Node2D {
 
   public override void _Ready() {
     // Correct any erroneous scaling and guess sensible defaults.
-    GetWindow().LookGood(WindowScaleBehavior.UIFixed, DesignResolution);
+    //GetWindow().LookGood(WindowScaleBehavior.UIFixed, DesignResolution);
 
 #if DEBUG
     // If this is a debug build, use GoDotTest to examine the
