@@ -1,23 +1,18 @@
 <Project Sdk="Godot.NET.Sdk/4.4.1">
   <PropertyGroup>
+    <!-- Ensure TargetFramework is clearly defined here -->
     <TargetFramework>net8.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>NetworkedDodgeball</RootNamespace>
-    <!-- Catch compiler-mismatch issues with the Introspection generator as early as possible -->
     <WarningsAsErrors>CS9057</WarningsAsErrors>
-    <!-- Required for some nuget packages to work -->
-    <!-- godotengine/godot/issues/42271#issuecomment-751423827 -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <!-- To show generated files -->
-    <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
-    <!--
-      <CompilerGeneratedFilesOutputPath>.generated</CompilerGeneratedFilesOutputPath>
-    -->
-    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
-    <!-- If needed, also specify the platform target -->
-    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Define supported Runtime Identifiers for CLI/Rider builds -->
+    <RuntimeIdentifiers>win-x64;osx-x64;osx-arm64</RuntimeIdentifiers>
+
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Title>NetworkedDodgeball</Title>
@@ -26,30 +21,85 @@
     <Copyright>© 2024 Jacob Edie</Copyright>
     <Authors>Jacob Edie</Authors>
     <Company>Jacob Edie</Company>
+
+    <!-- Use standard configurations -->
+    <Configurations>Debug;ExportDebug;ExportRelease</Configurations>
+    <!-- Platform AnyCPU is generally fine when using RIDs -->
+    <Platforms>AnyCPU</Platforms>
+
     <!-- Don't include unit tests in release builds. -->
     <DefaultItemExcludes Condition="'$(Configuration)' == 'ExportRelease'">
       $(DefaultItemExcludes);test/**/*
     </DefaultItemExcludes>
-    <Configurations>Debug;ExportDebug;ExportRelease</Configurations>
-    <Platforms>AnyCPU;win-x64;x64</Platforms>
   </PropertyGroup>
+
+  <!-- =============================================================== -->
+  <!-- == Conditional Properties based on Build Operating System      == -->
+  <!-- == Add necessary SDK Defines for ANY build (Godot Editor/CLI) == -->
+  <!-- =============================================================== -->
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <!-- Define for EOS Config.cs when building ON Windows -->
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <!-- Define for EOS Config.cs when building ON macOS -->
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Add Linux condition if needed -->
+  <!--
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_LINUX</DefineConstants>
+  </PropertyGroup>
+  -->
+
+  <!-- =============================================================== -->
+  <!-- == Conditional Properties based on Target RuntimeIdentifier    == -->
+  <!-- == Set PlatformTarget specifically for RID builds (Rider/CLI) == -->
+  <!-- =============================================================== -->
+
+  <!-- Windows x64 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- DefineConstants now handled by OS check above, but leaving uncommented is also fine -->
+    <!-- <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants> -->
+  </PropertyGroup>
+
+  <!-- macOS x64 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'osx-x64'">
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- DefineConstants now handled by OS check above -->
+    <!-- <DefineConstants>$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants> -->
+  </PropertyGroup>
+
+  <!-- macOS ARM64 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+    <PlatformTarget>ARM64</PlatformTarget>
+    <!-- DefineConstants now handled by OS check above -->
+    <!-- <DefineConstants>$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants> -->
+  </PropertyGroup>
+
+  <!-- =============================================================== -->
+  <!-- == Test Dependencies (Conditional on Configuration)          == -->
+  <!-- =============================================================== -->
   <ItemGroup Condition=" '$(Configuration)' == 'Debug' or '$(Configuration)' == 'ExportDebug' ">
     <!-- Test dependencies go here! -->
-    <!-- Dependencies added here will not be included in release builds. -->
     <PackageReference Include="Chickensoft.GoDotTest" Version="1.6.4" />
-    <!-- Used to drive test scenes when testing visual code -->
     <PackageReference Include="Chickensoft.GodotTestDriver" Version="3.0.2" />
-    <!-- Bring your own assertion library for tests! -->
-    <!-- We're using Shouldly for this example, but you can use anything. -->
     <PackageReference Include="Shouldly" Version="4.3.0" />
-    <!-- LightMock is a mocking library that works without reflection. -->
     <PackageReference Include="LightMock.Generator" Version="1.2.2" />
-    <!-- LightMoq is a Chickensoft package which makes it more like Moq. -->
     <PackageReference Include="LightMoq" Version="0.1.0" />
   </ItemGroup>
+
+  <!-- =============================================================== -->
+  <!-- == Production Dependencies & Source Code                     == -->
+  <!-- =============================================================== -->
   <ItemGroup>
     <!-- Production dependencies go here! -->
     <PackageReference Include="Chickensoft.GameTools" Version="2.0.6" />
+    <!-- SDK Source Code -->
     <Compile Include="..\SDK\Source\Core\**\*.cs">
       <Link>SDK\Core\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
@@ -60,13 +110,34 @@
       <Link>SDK\Overrides\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
   </ItemGroup>
-  <ItemGroup>
+
+  <!-- =============================================================== -->
+  <!-- == Conditional Native Dependencies (EOS SDK)                 == -->
+  <!-- == Condition includes OS check for Godot builds             == -->
+  <!-- =============================================================== -->
+
+  <!-- Include Windows DLL if building ON Windows OR targeting Windows RID -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
     <None Include="..\SDK\Bin\EOSSDK-Win64-Shipping.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>EOSSDK-Win64-Shipping.dll</Link>
     </None>
   </ItemGroup>
+
+  <!-- Include macOS dylib if building ON macOS OR targeting macOS RID -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) Or '$(RuntimeIdentifier)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64'">
+    <None Include="..\SDK\Bin\libEOSSDK-Mac-Shipping.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libEOSSDK-Mac-Shipping.dylib</Link>
+    </None>
+  </ItemGroup>
+
+  <!-- =============================================================== -->
+  <!-- == Content Files                                             == -->
+  <!-- =============================================================== -->
   <ItemGroup>
     <Content Include=".env" />
     <Content Include=".env.example" />
   </ItemGroup>
+
 </Project>

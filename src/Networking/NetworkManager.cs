@@ -8,6 +8,7 @@ using Epic.OnlineServices;
 using Epic.OnlineServices.Auth;
 using Epic.OnlineServices.Platform;
 using Environment = Godot.Environment;
+using FileAccess = Godot.FileAccess;
 
 public partial class NetworkManager : Node {
   private string _productId = "";
