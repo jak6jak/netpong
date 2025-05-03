@@ -49,7 +49,8 @@ public partial class NetworkManager : Node {
     }
 
     var initializeOptions = new Epic.OnlineServices.Platform.InitializeOptions() {
-      ProductName = this.ProductName, ProductVersion = this.ProductVersion,
+      ProductName = this.ProductName,
+      ProductVersion = this.ProductVersion,
     };
     Result initializeResult = Epic.OnlineServices.Platform.PlatformInterface.Initialize(ref initializeOptions);
     if (initializeResult != Result.Success) {
@@ -92,84 +93,75 @@ public partial class NetworkManager : Node {
   private void Authenticate() {
     GD.Print($"Attempting EOS Login with type: {LoginCredentialType}");
 
-      Credentials credentials;
+    Credentials credentials;
 
-      if (LoginCredentialType == LoginCredentialType.Developer)
-      {
-            if (string.IsNullOrEmpty(DeveloperLoginUserName)) {
-                GD.PushError("DeveloperLoginUsername is not set in the Inspector for Developer Auth!");
-                return;
-            }
-            if (string.IsNullOrEmpty(DevAuthURL)) {
-                 GD.PushError("DevAuthToolUrl is not set in the Inspector for Developer Auth!");
-                 return;
-            }
-            if (string.IsNullOrEmpty(_clientSecret)) {
-                 GD.PushWarning("Client Secret is missing in configuration. It IS REQUIRED for Developer Auth Tool.");
-                 // Optionally return here if you know it will fail
-            }
-
-            credentials = new Credentials()
-            {
-                Type = LoginCredentialType.Developer,
-                Id = DevAuthURL, // This is the username you'll see in DevAuthTool
-                Token = DeveloperLoginUserName // This is the URL where DevAuthTool is listening
-            };
-            GD.Print($"Using Developer Credentials: ID='{credentials.Id}', Token (URL)='{credentials.Token}'");
+    if (LoginCredentialType == LoginCredentialType.Developer) {
+      if (string.IsNullOrEmpty(DeveloperLoginUserName)) {
+        GD.PushError("DeveloperLoginUsername is not set in the Inspector for Developer Auth!");
+        return;
       }
-      else if (LoginCredentialType == LoginCredentialType.AccountPortal)
-      {
-          // AccountPortal uses external browser, Id and Token are null initially
-          credentials = new Credentials()
-          {
-              Type = LoginCredentialType.AccountPortal,
-              Id = null,
-              Token = null
-          };
+      if (string.IsNullOrEmpty(DevAuthURL)) {
+        GD.PushError("DevAuthToolUrl is not set in the Inspector for Developer Auth!");
+        return;
       }
-      // Add other types (like External Credentials for Steam, etc.) here if needed
-      // else if (LoginCredentialType == LoginCredentialType.ExternalCredential) { ... }
-      else
-      {
-            GD.PushError($"Unsupported LoginCredentialType for this example: {LoginCredentialType}");
-            return;
+      if (string.IsNullOrEmpty(_clientSecret)) {
+        GD.PushWarning("Client Secret is missing in configuration. It IS REQUIRED for Developer Auth Tool.");
+        // Optionally return here if you know it will fail
       }
 
-
-      var loginOptions = new LoginOptions()
-      {
-          Credentials = credentials,
-          // Adjust scopes as needed for your game
-          ScopeFlags = AuthScopeFlags.BasicProfile
+      credentials = new Credentials() {
+        Type = LoginCredentialType.Developer,
+        Id = DevAuthURL, // This is the username you'll see in DevAuthTool
+        Token = DeveloperLoginUserName // This is the URL where DevAuthTool is listening
       };
+      GD.Print($"Using Developer Credentials: ID='{credentials.Id}', Token (URL)='{credentials.Token}'");
+    }
+    else if (LoginCredentialType == LoginCredentialType.AccountPortal) {
+      // AccountPortal uses external browser, Id and Token are null initially
+      credentials = new Credentials() {
+        Type = LoginCredentialType.AccountPortal,
+        Id = null,
+        Token = null
+      };
+    }
+    // Add other types (like External Credentials for Steam, etc.) here if needed
+    // else if (LoginCredentialType == LoginCredentialType.ExternalCredential) { ... }
+    else {
+      GD.PushError($"Unsupported LoginCredentialType for this example: {LoginCredentialType}");
+      return;
+    }
 
-      // Ensure Auth Interface is valid before calling Login
-      var authInterface = EOSPlatformInterface?.GetAuthInterface();
-      if (authInterface == null) {
-          GD.PushError("EOS Auth Interface is null. Cannot login.");
-          return;
+
+    var loginOptions = new LoginOptions() {
+      Credentials = credentials,
+      // Adjust scopes as needed for your game
+      ScopeFlags = AuthScopeFlags.BasicProfile
+    };
+
+    // Ensure Auth Interface is valid before calling Login
+    var authInterface = EOSPlatformInterface?.GetAuthInterface();
+    if (authInterface == null) {
+      GD.PushError("EOS Auth Interface is null. Cannot login.");
+      return;
+    }
+
+    authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo callbackInfo) => {
+      if (callbackInfo.ResultCode == Result.Success) {
+        GD.Print($"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()} (or fetch display name later)"); // DisplayName might not be immediately available
+                                                                                                                                                                     // You are now logged in. Proceed with connecting to lobbies, sessions etc.
+                                                                                                                                                                     // Store callbackInfo.LocalUserId - this is your primary identifier for this player.
       }
-
-      authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo callbackInfo) =>
-      {
-          if (callbackInfo.ResultCode == Result.Success)
-          {
-              GD.Print($"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()} (or fetch display name later)"); // DisplayName might not be immediately available
-              // You are now logged in. Proceed with connecting to lobbies, sessions etc.
-              // Store callbackInfo.LocalUserId - this is your primary identifier for this player.
-          }
-          else if (Common.IsOperationComplete(callbackInfo.ResultCode))
-          {
-              GD.PushError($"Login failed: {callbackInfo.ResultCode}");
-              // Handle specific errors, e.g., InvalidUser, InvalidCredentials
-              if (callbackInfo.ResultCode == Result.InvalidCredentials && LoginCredentialType == LoginCredentialType.Developer) {
-                  GD.PushError("Dev Auth Failed: Check if DevAuthTool is running, configured with correct Client ID/Secret, and using the correct URL/Port in Godot.");
-                  return;
-              }
-          }
-          // Note: For AccountPortal, you might get other result codes during the external browser flow.
-      });
-      GD.Print("EOS Login request sent.");
+      else if (Common.IsOperationComplete(callbackInfo.ResultCode)) {
+        GD.PushError($"Login failed: {callbackInfo.ResultCode}");
+        // Handle specific errors, e.g., InvalidUser, InvalidCredentials
+        if (callbackInfo.ResultCode == Result.InvalidCredentials && LoginCredentialType == LoginCredentialType.Developer) {
+          GD.PushError("Dev Auth Failed: Check if DevAuthTool is running, configured with correct Client ID/Secret, and using the correct URL/Port in Godot.");
+          return;
+        }
+      }
+      // Note: For AccountPortal, you might get other result codes during the external browser flow.
+    });
+    GD.Print("EOS Login request sent.");
   }
   private bool LoadConfiguration() {
     var configValues = new Dictionary<string, string>();
