@@ -7,14 +7,18 @@ using System.Collections.Generic;
 using Epic.OnlineServices;
 using Epic.OnlineServices.Auth;
 using Epic.OnlineServices.Platform;
+using Epic.OnlineServices.UserInfo;
 using Environment = Godot.Environment;
 
 public partial class NetworkManager : Node {
+  public static NetworkManager Instance { get; private set; }
+
+
   private string _productId = "";
   private string _sandboxId = "";
   private string _deploymentId = "";
   private string _clientId = "";
-  private string _clientSecret = ""; // Be extra careful with this!
+  private string _clientSecret = "";
 
   // --- Non-Sensitive Config (Can still be Exported if desired) ---
   [Export] public string ProductName = "MyGodotGame";
@@ -26,26 +30,30 @@ public partial class NetworkManager : Node {
 
   public string LoginCredentialId = null;
   public string LoginCredentialToken = null;
-  // ... other non-secret exports ...
-
+  [Signal]
+  public delegate void AuthenticationFinishedEventHandler(bool success, string localUserId, string errorMessage);
   // --- EOS SDK State ---
   public static PlatformInterface EOSPlatformInterface { get; private set; }
 
-  // ... rest of the variables ...
   private const double PlatformTickInterval = 0.1f;
 
   private double PlatformTickTimer = 0f;
-
-  // Path to the config file
   private const string EnvFilePath = "res://.env";
   private static readonly string[] separator = new[] { "\r\n", "\r", "\n" };
 
   public override void _Ready() {
+    if (Instance == null) {
+      Instance = this;
+    }
+    else {
+      GD.PushWarning("NetworkManager: Another instance tried to set itself as Instance. Destroying self.");
+      QueueFree(); // Or handle appropriately
+      return;
+    }
+
     if (!LoadConfiguration()) {
       GD.PushError("EOSManager: Failed to load EOS configuration. Check .env file or environment variables.");
-      // Optionally disable EOS functionality or quit
-      // GetTree().Quit();
-      return; // Stop initialization
+      return;
     }
 
     var initializeOptions = new Epic.OnlineServices.Platform.InitializeOptions() {
@@ -111,8 +119,8 @@ public partial class NetworkManager : Node {
 
       credentials = new Credentials() {
         Type = LoginCredentialType.Developer,
-        Id = DevAuthURL, // This is the username you'll see in DevAuthTool
-        Token = DeveloperLoginUserName // This is the URL where DevAuthTool is listening
+        Id = DevAuthURL,
+        Token = DeveloperLoginUserName,
       };
       GD.Print($"Using Developer Credentials: ID='{credentials.Id}', Token (URL)='{credentials.Token}'");
     }
@@ -147,17 +155,31 @@ public partial class NetworkManager : Node {
 
     authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo callbackInfo) => {
       if (callbackInfo.ResultCode == Result.Success) {
-        GD.Print($"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()} (or fetch display name later)"); // DisplayName might not be immediately available
-                                                                                                                                                                     // You are now logged in. Proceed with connecting to lobbies, sessions etc.
-                                                                                                                                                                     // Store callbackInfo.LocalUserId - this is your primary identifier for this player.
+        GD.Print($"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()}");
+        // DisplayName might not be immediately available
+        // You are now logged in. Proceed with connecting to lobbies, sessions etc.
+        // Store callbackInfo.LocalUserId - this is your primary identifier for this player
+        CopyUserInfoOptions copyUserInfoOptions = new CopyUserInfoOptions();
+        copyUserInfoOptions.TargetUserId = callbackInfo.LocalUserId;
+        copyUserInfoOptions.LocalUserId = callbackInfo.LocalUserId;
+
+        UserInfoData? userInfoData;
+        EOSPlatformInterface.GetUserInfoInterface().CopyUserInfo(ref copyUserInfoOptions, out userInfoData);
+
+
+        EmitSignal(SignalName.AuthenticationFinished, true, userInfoData.Value.DisplayName.ToString(), "");
       }
       else if (Common.IsOperationComplete(callbackInfo.ResultCode)) {
         GD.PushError($"Login failed: {callbackInfo.ResultCode}");
         // Handle specific errors, e.g., InvalidUser, InvalidCredentials
+        string errorMessage = $"Login Failed: ${callbackInfo.ResultCode}";
+
         if (callbackInfo.ResultCode == Result.InvalidCredentials && LoginCredentialType == LoginCredentialType.Developer) {
+          errorMessage += " Dev Auth failed";
           GD.PushError("Dev Auth Failed: Check if DevAuthTool is running, configured with correct Client ID/Secret, and using the correct URL/Port in Godot.");
           return;
         }
+        EmitSignal(SignalName.AuthenticationFinished, false, "", errorMessage);
       }
       // Note: For AccountPortal, you might get other result codes during the external browser flow.
     });
@@ -212,31 +234,21 @@ public partial class NetworkManager : Node {
     else {
       GD.Print($"EOSManager: .env file not found at {EnvFilePath}. Will check environment variables.");
     }
+    // Load DeveloperUserName from command line arguments if not set
+    var args = OS.GetCmdlineUserArgs();
+    for (int i = 0; i < args.Length; i++) {
+      if (args[i].StartsWith("--username=")) {
+        DeveloperLoginUserName = args[i].Substring("--username=".Length);
+        GD.Print($"Overriding DeveloperLoginUserName from command line: {DeveloperLoginUserName}");
+        break; // Stop after finding the argument
+      }
+    }
 
-    string envProductId = OS.GetEnvironment("EOS_PRODUCT_ID");
-    _productId = !string.IsNullOrEmpty(envProductId)
-      ? envProductId // Use env var if it's not null or empty
-      : configValues.GetValueOrDefault("EOS_PRODUCT_ID", ""); // Otherwise, use dictionary
-
-    string envSandboxId = OS.GetEnvironment("EOS_SANDBOX_ID");
-    _sandboxId = !string.IsNullOrEmpty(envSandboxId)
-      ? envSandboxId
-      : configValues.GetValueOrDefault("EOS_SANDBOX_ID", "");
-
-    string envDeploymentId = OS.GetEnvironment("EOS_DEPLOYMENT_ID");
-    _deploymentId = !string.IsNullOrEmpty(envDeploymentId)
-      ? envDeploymentId
-      : configValues.GetValueOrDefault("EOS_DEPLOYMENT_ID", "");
-
-    string envClientId = OS.GetEnvironment("EOS_CLIENT_ID");
-    _clientId = !string.IsNullOrEmpty(envClientId)
-      ? envClientId
-      : configValues.GetValueOrDefault("EOS_CLIENT_ID", "");
-
-    string envClientSecret = OS.GetEnvironment("EOS_CLIENT_SECRET");
-    _clientSecret = !string.IsNullOrEmpty(envClientSecret)
-      ? envClientSecret
-      : configValues.GetValueOrDefault("EOS_CLIENT_SECRET", "");
+    _productId = configValues.GetValueOrDefault("EOS_PRODUCT_ID", ""); // Otherwise, use dictionary
+    _sandboxId = configValues.GetValueOrDefault("EOS_SANDBOX_ID", "");
+    _deploymentId = configValues.GetValueOrDefault("EOS_DEPLOYMENT_ID", "");
+    _clientId = configValues.GetValueOrDefault("EOS_CLIENT_ID", "");
+    _clientSecret = configValues.GetValueOrDefault("EOS_CLIENT_SECRET", "");
     // 3. Validate required fields (This part remains the same)
     if (string.IsNullOrEmpty(_productId) || string.IsNullOrEmpty(_sandboxId) || string.IsNullOrEmpty(_deploymentId) ||
         string.IsNullOrEmpty(_clientId)) {
