@@ -174,5 +174,6 @@
       "icon": "terminal-powershell",
       "source": "PowerShell"
     }
-  }
+  },
+  "godotTools.editorPath.godot4": "/Applications/Godot_mono.app"
 }
