@@ -15,9 +15,8 @@
     <!--
       <CompilerGeneratedFilesOutputPath>.generated</CompilerGeneratedFilesOutputPath>
     -->
-    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+    <!--<DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>-->
     <!-- If needed, also specify the platform target -->
-    <PlatformTarget>x64</PlatformTarget>
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Title>NetworkedDodgeball</Title>
@@ -30,9 +29,39 @@
     <DefaultItemExcludes Condition="'$(Configuration)' == 'ExportRelease'">
       $(DefaultItemExcludes);test/**/*
     </DefaultItemExcludes>
-    <Configurations>Debug;ExportDebug;ExportRelease</Configurations>
-    <Platforms>AnyCPU;win-x64;x64</Platforms>
+    <Configurations>Debug;ExportDebug;ExportRelease;</Configurations>
+    <!-- Define supported Runtime Identifiers for CLI/Rider builds -->
   </PropertyGroup>
+<!--
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+     Define for EOS Config.cs when building ON Windows
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+-->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <!-- Define for EOS Config.cs when building ON macOS -->
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants>
+    <!-- Force ARM64 build on M1/M2 Macs -->
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+    <PlatformTarget>ARM64</PlatformTarget>
+    <!-- Explicitly set macOS as target OS -->
+    <OSPlatform>OSX</OSPlatform>
+    <TargetOS>osx</TargetOS>
+  </PropertyGroup>
+
+  <!-- Windows x64 
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+  </PropertyGroup>
+-->
+  <!-- macOS ARM64 -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'osx-arm64'">
+    <PlatformTarget>ARM64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup Condition=" '$(Configuration)' == 'Debug' or '$(Configuration)' == 'ExportDebug' ">
     <!-- Test dependencies go here! -->
     <!-- Dependencies added here will not be included in release builds. -->
@@ -60,9 +89,20 @@
       <Link>SDK\Overrides\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </Compile>
   </ItemGroup>
-  <ItemGroup>
+
+  <!-- Include Windows DLL if building ON Windows OR targeting Windows RID -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
     <None Include="..\SDK\Bin\EOSSDK-Win64-Shipping.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>EOSSDK-Win64-Shipping.dll</Link>
+    </None>
+  </ItemGroup>
+
+  <!-- Include macOS dylib if building ON macOS OR targeting macOS RID -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) Or '$(RuntimeIdentifier)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64'">
+    <None Include="..\SDK\Bin\libEOSSDK-Mac-Shipping.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libEOSSDK-Mac-Shipping.dylib</Link>
     </None>
   </ItemGroup>
   <ItemGroup>
