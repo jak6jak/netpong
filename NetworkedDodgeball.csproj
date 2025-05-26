@@ -2,22 +2,15 @@
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>NetworkedDodgeball</RootNamespace>
-    <!-- Catch compiler-mismatch issues with the Introspection generator as early as possible -->
     <WarningsAsErrors>CS9057</WarningsAsErrors>
-    <!-- Required for some nuget packages to work -->
-    <!-- godotengine/godot/issues/42271#issuecomment-751423827 -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <!-- To show generated files -->
-    <!-- <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles> -->
-    <!--
-      <CompilerGeneratedFilesOutputPath>.generated</CompilerGeneratedFilesOutputPath>
-    -->
-    <!-- always preserve any existing constants -->
+    
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <DefineConstants>$(DefineConstants)</DefineConstants>
-    <!-- If needed, also specify the platform target -->
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <Title>NetworkedDodgeball</Title>
@@ -26,32 +19,27 @@
     <Copyright>© 2024 Jacob Edie</Copyright>
     <Authors>Jacob Edie</Authors>
     <Company>Jacob Edie</Company>
-    <!-- Don't include unit tests in release builds. -->
-    <DefaultItemExcludes Condition="'$(Configuration)' == 'ExportRelease'">
-      $(DefaultItemExcludes);test/**/*
-    </DefaultItemExcludes>
+    
     <Configurations>Debug;ExportDebug;ExportRelease;</Configurations>
-    <!-- Define supported Runtime Identifiers for CLI/Rider builds -->
-    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(DefineConstants);EOS_PLATFORM_OSX</DefineConstants>
-    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);EOS_PLATFORM_WINDOWS_64</DefineConstants>
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(DefineConstants);EOS_PLATFORM_OSX;PLATFORM_POSIX</DefineConstants>
+    <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);EOS_PLATFORM_WINDOWS_64;PLATFORM_WIN64</DefineConstants>
+
+    <DefaultItemExcludes>$(DefaultItemExcludes);steam/Facepunch.Steamworks/Facepunch.Steamworks.Test/**/*.cs;steam/Facepunch.Steamworks/Generator/**/*.cs;steam/Facepunch.Steamworks/Facepunch.Steamworks/obj/**/*.cs;steam/Facepunch.Steamworks/Facepunch.Steamworks/**/*.cs</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'ExportRelease'">
+    <DefaultItemExcludes>$(DefaultItemExcludes);test/**/*</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup Condition=" '$(Configuration)' == 'Debug' or '$(Configuration)' == 'ExportDebug' ">
-    <!-- Test dependencies go here! -->
-    <!-- Dependencies added here will not be included in release builds. -->
     <PackageReference Include="Chickensoft.GoDotTest" Version="1.6.4" />
-    <!-- Used to drive test scenes when testing visual code -->
     <PackageReference Include="Chickensoft.GodotTestDriver" Version="3.0.2" />
-    <!-- Bring your own assertion library for tests! -->
-    <!-- We're using Shouldly for this example, but you can use anything. -->
     <PackageReference Include="Shouldly" Version="4.3.0" />
-    <!-- LightMock is a mocking library that works without reflection. -->
     <PackageReference Include="LightMock.Generator" Version="1.2.2" />
-    <!-- LightMoq is a Chickensoft package which makes it more like Moq. -->
     <PackageReference Include="LightMoq" Version="0.1.0" />
   </ItemGroup>
+
   <ItemGroup>
-    <!-- Production dependencies go here! -->
     <PackageReference Include="Chickensoft.GameTools" Version="2.0.6" />
     <Compile Include="..\SDK\Source\Core\**\*.cs">
       <Link>SDK\Core\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -64,7 +52,6 @@
     </Compile>
   </ItemGroup>
 
-  <!-- Include Windows DLL if building ON Windows OR targeting Windows RID -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) Or '$(RuntimeIdentifier)' == 'win-x64'">
     <None Include="..\SDK\Bin\EOSSDK-Win64-Shipping.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -72,15 +59,42 @@
     </None>
   </ItemGroup>
 
-  <!-- Include macOS dylib if building ON macOS OR targeting macOS RID -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) Or '$(RuntimeIdentifier)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64'">
     <None Include="..\SDK\Bin\libEOSSDK-Mac-Shipping.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libEOSSDK-Mac-Shipping.dylib</Link>
     </None>
+    <None Include="libsteam_api.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libsteam_api.dylib</Link>
+    </None>
   </ItemGroup>
+
   <ItemGroup>
     <Content Include=".env" />
     <Content Include=".env.example" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX'))">
+    <Reference Include="Facepunch.Steamworks.Posix">
+      <HintPath>steam/Facepunch.Steamworks/Facepunch.Steamworks/bin/Debug/net6.0/Facepunch.Steamworks.Posix.dll</HintPath>
+      <Private>True</Private>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Reference Include="Facepunch.Steamworks.Win64">
+      <HintPath>steam/Facepunch.Steamworks/Facepunch.Steamworks/bin/Debug/net6.0/Facepunch.Steamworks.Win64.dll</HintPath>
+      <Private>True</Private>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks.Test/**/*.cs" />
+    <Compile Remove="steam/Facepunch.Steamworks/Generator/**/*.cs" />
+    <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks/obj/**/*.cs" />
+    <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks/**/*.cs" /> 
   </ItemGroup>
 </Project>

@@ -7,6 +7,7 @@ using Epic.OnlineServices.Auth;
 using Epic.OnlineServices.Platform;
 using Epic.OnlineServices.UserInfo;
 using Godot;
+using Steamworks;
 
 public partial class NetworkManager : Node {
   public static NetworkManager Instance { get; private set; }
@@ -19,21 +20,25 @@ public partial class NetworkManager : Node {
   private string _clientSecret = "";
 
 
-// --- Non-Sensitive Config (Can still be Exported if desired) ---
+  // --- Non-Sensitive Config (Can still be Exported if desired) ---
   [Export] public string ProductName = "MyGodotGame";
   [Export] public string ProductVersion = "1.0";
-  [Export] public LoginCredentialType LoginCredentialType = LoginCredentialType.Developer;
+  [Export] public LoginCredentialType LoginCredentialType = LoginCredentialType.ExternalAuth;
   [Export] public string DevAuthURL = "127.0.0.1:9876";
   [Export] public string DeveloperLoginUserName = "DevUser1";
+  [Export] public string SteamAppId = "3136980"; // Default Steam App ID, change this to your game's App ID
 
 
   public string LoginCredentialId;
   public string LoginCredentialToken;
+  private ContinuanceToken _continuanceToken; // Store continuance token for account linking
 
   [Signal]
   public delegate void AuthenticationFinishedEventHandler(bool success, string localUserId, string errorMessage);
+  [Signal]
+  public delegate void AccountLinkingRequiredEventHandler(); // Signal when account linking is needed
 
-// --- EOS SDK State ---
+  // --- EOS SDK State ---
   public static PlatformInterface EOSPlatformInterface { get; private set; }
   private const double PlatformTickInterval = 0.1f;
   private double PlatformTickTimer = 0f;
@@ -58,12 +63,13 @@ public partial class NetworkManager : Node {
     }
 
     var initializeOptions = new Epic.OnlineServices.Platform.InitializeOptions() {
-      ProductName = this.ProductName, ProductVersion = this.ProductVersion,
+      ProductName = this.ProductName,
+      ProductVersion = this.ProductVersion,
     };
 
-    Result initializeResult = Epic.OnlineServices.Platform.PlatformInterface.Initialize(ref initializeOptions);
+    Epic.OnlineServices.Result initializeResult = Epic.OnlineServices.Platform.PlatformInterface.Initialize(ref initializeOptions);
 
-    if (initializeResult != Result.Success) {
+    if (initializeResult != Epic.OnlineServices.Result.Success) {
       GD.PushError("Failed to initialize EOS configuration. " + initializeResult);
     }
 
@@ -111,9 +117,7 @@ public partial class NetworkManager : Node {
   private void Authenticate() {
     GD.Print($"Attempting EOS Login with type: {LoginCredentialType}");
 
-
     Credentials credentials;
-
 
     if (LoginCredentialType == LoginCredentialType.Developer) {
       if (string.IsNullOrEmpty(DeveloperLoginUserName)) {
@@ -136,7 +140,9 @@ public partial class NetworkManager : Node {
 
 
       credentials = new Credentials() {
-        Type = LoginCredentialType.Developer, Id = DevAuthURL, Token = DeveloperLoginUserName,
+        Type = LoginCredentialType.Developer,
+        Id = DevAuthURL,
+        Token = DeveloperLoginUserName,
       };
 
       GD.Print($"Using Developer Credentials: ID='{credentials.Id}', Token (URL)='{credentials.Token}'");
@@ -144,13 +150,26 @@ public partial class NetworkManager : Node {
 
     else if (LoginCredentialType == LoginCredentialType.AccountPortal) {
       // AccountPortal uses external browser, Id and Token are null initially
-
       credentials = new Credentials() { Type = LoginCredentialType.AccountPortal, Id = null, Token = null };
     }
+    else if (LoginCredentialType == LoginCredentialType.ExternalAuth) {
+      // Steam login
+      string steamSessionTicket = GetSteamSessionTicket();
+      if (string.IsNullOrEmpty(steamSessionTicket)) {
+        GD.PushError("Failed to get Steam Session Ticket. Make sure Steam is running and user is logged in.");
+        EmitSignal(SignalName.AuthenticationFinished, false, "", "Steam not available");
+        return;
+      }
 
-    // Add other types (like External Credentials for Steam, etc.) here if needed
+      credentials = new Credentials() {
+        Type = LoginCredentialType.ExternalAuth,
+        Id = "steam",
+        Token = steamSessionTicket,
+        ExternalType = ExternalCredentialType.SteamSessionTicket
+      };
 
-    // else if (LoginCredentialType == LoginCredentialType.ExternalCredential) { ... }
+      GD.Print("Using Steam Session Ticket for authentication");
+    }
 
     else {
       GD.PushError($"Unsupported LoginCredentialType for this example: {LoginCredentialType}");
@@ -164,7 +183,7 @@ public partial class NetworkManager : Node {
 
       // Adjust scopes as needed for your game
 
-      ScopeFlags = AuthScopeFlags.BasicProfile
+      ScopeFlags = AuthScopeFlags.BasicProfile | AuthScopeFlags.Presence | AuthScopeFlags.FriendsList
     };
 
 
@@ -180,7 +199,7 @@ public partial class NetworkManager : Node {
 
 
     authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo callbackInfo) => {
-      if (callbackInfo.ResultCode == Result.Success) {
+      if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
         GD.Print(
           $"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()}");
 
@@ -205,6 +224,13 @@ public partial class NetworkManager : Node {
         EmitSignal(SignalName.AuthenticationFinished, true, userInfoData.Value.DisplayName.ToString(), "");
       }
 
+      else if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
+        // Account needs to be linked
+        _continuanceToken = callbackInfo.ContinuanceToken;
+        GD.Print("Steam account needs to be linked to Epic account");
+        EmitSignal(SignalName.AccountLinkingRequired);
+      }
+
       else if (Common.IsOperationComplete(callbackInfo.ResultCode)) {
         GD.PushError($"Login failed: {callbackInfo.ResultCode}");
 
@@ -213,7 +239,7 @@ public partial class NetworkManager : Node {
         string errorMessage = $"Login Failed: ${callbackInfo.ResultCode}";
 
 
-        if (callbackInfo.ResultCode == Result.InvalidCredentials &&
+        if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidCredentials &&
             LoginCredentialType == LoginCredentialType.Developer) {
           errorMessage += " Dev Auth failed";
 
@@ -230,6 +256,64 @@ public partial class NetworkManager : Node {
     });
 
     GD.Print("EOS Login request sent.");
+  }
+
+  private string GetSteamSessionTicket() {
+    try {
+      SteamClient.Init(uint.Parse(SteamAppId), true);
+    }
+    catch (Exception e) {
+      GD.PushError($"Failed to initialize SteamClient: {e.Message}");
+      return "";
+    }
+
+    if (!SteamClient.IsValid) {
+      GD.PushError("Steam is not running or not initialized");
+      return "";
+    }
+
+    if (!SteamClient.IsLoggedOn) {
+      GD.PushError("User is not logged into Steam");
+      return "";
+    }
+
+    var ticket = SteamUser.GetAuthSessionTicket(SteamClient.SteamId);
+    if (ticket == null || ticket.Data == null || ticket.Data.Length == 0) {
+      GD.PushError("Failed to get Steam session ticket");
+      return "";
+    }
+
+    return Convert.ToBase64String(ticket.Data);
+  }
+
+  public void LinkSteamAccount() {
+    if (_continuanceToken == null) {
+      GD.PushError("No continuance token available for account linking");
+      return;
+    }
+
+    var linkAccountOptions = new LinkAccountOptions {
+      ContinuanceToken = _continuanceToken,
+      LinkAccountFlags = 0 // Use 0 for no flags as we're linking with external auth
+    };
+
+    var authInterface = EOSPlatformInterface?.GetAuthInterface();
+    if (authInterface == null) {
+      GD.PushError("EOS Auth Interface is null. Cannot link account.");
+      return;
+    }
+
+    authInterface.LinkAccount(ref linkAccountOptions, null, (ref LinkAccountCallbackInfo callbackInfo) => {
+      if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+        GD.Print("Account linked successfully");
+        // Retry authentication after successful linking
+        Authenticate();
+      }
+      else {
+        GD.PushError($"Account linking failed: {callbackInfo.ResultCode}");
+        EmitSignal(SignalName.AuthenticationFinished, false, "", $"Account linking failed: {callbackInfo.ResultCode}");
+      }
+    });
   }
 
   private bool LoadConfiguration() {
@@ -336,7 +420,6 @@ public partial class NetworkManager : Node {
           "EOSManager: EOS ClientSecret is also missing. This might be okay for some login types (like AccountPortal) but required for others (like Dev Auth Tool).");
       }
 
-
       // Decide if this is a fatal error
 
       return false;
@@ -346,5 +429,10 @@ public partial class NetworkManager : Node {
     GD.Print("EOSManager: Configuration loaded.");
 
     return true; // Indicate success even if some values are missing, handle missing values later
+  }
+
+  public override void _ExitTree() {
+    base._ExitTree();
+    SteamClient.Shutdown();
   }
 }

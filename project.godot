@@ -15,6 +15,10 @@ run/main_scene="uid://du7hlwjl6vw6l"
 config/features=PackedStringArray("4.4", "C#", "Mobile")
 config/icon="res://icon.png"
 
+[autoload]
+
+NetworkManager="*res://src/Networking/NetworkManager.cs"
+
 [display]
 
 window/size/viewport_width=720
