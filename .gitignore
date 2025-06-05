@@ -1,17 +1,71 @@
+# Godot cache and build artifacts
+.godot/
+.godot/mono/
+.godot/imported/
+.godot/editor/
+.godot/exported/
+.godot/shader_cache/
+
+# Godot Mono (C#) build artifacts
+bin/
+obj/
+.generated/
+
+# VS Code and JetBrains Rider/IDEA settings
+.vscode/
+.idea/
+*.sln
+*.csproj
+*.user
+
+# Zed workspace (if not needed in repo)
+.zed/
+
+# Addons build artifacts (Epic Online Services Godot)
+addons/epic-online-services-godot/bin/
+addons/epic-online-services-godot/heos/
+
+# Steam SDK and Facepunch build artifacts
+steam/Facepunch.Steamworks/Facepunch.Steamworks/bin/
+steam/Facepunch.Steamworks/Facepunch.Steamworks/obj/
+steam/Facepunch.Steamworks/Facepunch.Steamworks.Test/bin/
+steam/Facepunch.Steamworks/Facepunch.Steamworks.Test/obj/
+steam/Facepunch.Steamworks/Generator/bin/
+steam/Facepunch.Steamworks/Generator/obj/
+steam/Facepunch.Steamworks/Facepunch.Steamworks.UnityPlugin/redistributable_bin/
+steam/sdk/redistributable_bin/
+steam/sdk/steamworksexample/debug/
+steam/sdk/steamworksexample/release/
+steam/sdk/steamworksexample/win64/debug/
+steam/sdk/steamworksexample/win64/release/
+steam/*
+# Steam SDK tools output
+steam/sdk/tools/ContentBuilder/output/
+
+# macOS and Windows system files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Test/build/coverage artifacts
+coverage/
+test/bin/
+test/obj/
+*.log
+*.tmp
+
+# Python cache (if any scripts)
+__pycache__/
+
+# Ignore badges if they are generated
+badges/
+
 nupkg/
 
 coverage/*
 !coverage/.gdignore
 .env
-.godot/
-bin/
-obj/
-.generated/
-.vs/
-.DS_Store
-/src/EOSSDK/
-*.translation
-/steam/*
 steam_api.dll
 steam_api.lib
 steam_api64.dll
