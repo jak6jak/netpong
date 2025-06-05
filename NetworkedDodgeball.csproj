@@ -8,7 +8,7 @@
     <RootNamespace>NetworkedDodgeball</RootNamespace>
     <WarningsAsErrors>CS9057</WarningsAsErrors>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    
+
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <DefineConstants>$(DefineConstants)</DefineConstants>
     <DebugType>portable</DebugType>
@@ -19,7 +19,7 @@
     <Copyright>© 2024 Jacob Edie</Copyright>
     <Authors>Jacob Edie</Authors>
     <Company>Jacob Edie</Company>
-    
+
     <Configurations>Debug;ExportDebug;ExportRelease;</Configurations>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('OSX'))">$(DefineConstants);EOS_PLATFORM_OSX;PLATFORM_POSIX</DefineConstants>
     <DefineConstants Condition="$([MSBuild]::IsOSPlatform('Windows'))">$(DefineConstants);EOS_PLATFORM_WINDOWS_64;PLATFORM_WIN64</DefineConstants>
@@ -56,6 +56,10 @@
     <None Include="..\SDK\Bin\EOSSDK-Win64-Shipping.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>EOSSDK-Win64-Shipping.dll</Link>
+    </None>
+    <None Include="libsteam_api.dylib">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>steam_api.dll</Link>
     </None>
   </ItemGroup>
 
@@ -95,6 +99,6 @@
     <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks.Test/**/*.cs" />
     <Compile Remove="steam/Facepunch.Steamworks/Generator/**/*.cs" />
     <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks/obj/**/*.cs" />
-    <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks/**/*.cs" /> 
+    <Compile Remove="steam/Facepunch.Steamworks/Facepunch.Steamworks/**/*.cs" />
   </ItemGroup>
 </Project>

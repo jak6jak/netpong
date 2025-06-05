@@ -11,3 +11,8 @@ obj/
 .DS_Store
 /src/EOSSDK/
 *.translation
+/steam/*
+steam_api.dll
+steam_api.lib
+steam_api64.dll
+steam_api64.lib

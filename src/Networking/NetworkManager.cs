@@ -2,6 +2,8 @@ namespace NetworkedDodgeball.Networking;
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Threading.Tasks;
 using Epic.OnlineServices;
 using Epic.OnlineServices.Auth;
 using Epic.OnlineServices.Platform;
@@ -50,7 +52,7 @@ public partial class NetworkManager : Node {
       Instance = this;
     }
     else {
-      GD.PushWarning("NetworkManager: Another instance tried to set itself as Instance. Destroying self.");
+      GD.PushWarning("EOS_ByteArray_ToString reported LimitExceeded but returned 0 for buffer size. Assuming empty string result.");
 
       QueueFree(); // Or handle appropriately
 
@@ -114,7 +116,7 @@ public partial class NetworkManager : Node {
   }
 
 
-  private void Authenticate() {
+  private async Task Authenticate() {
     GD.Print($"Attempting EOS Login with type: {LoginCredentialType}");
 
     Credentials credentials;
@@ -154,7 +156,7 @@ public partial class NetworkManager : Node {
     }
     else if (LoginCredentialType == LoginCredentialType.ExternalAuth) {
       // Steam login
-      string steamSessionTicket = GetSteamSessionTicket();
+      string steamSessionTicket = await GetSteamSessionTicket();
       if (string.IsNullOrEmpty(steamSessionTicket)) {
         GD.PushError("Failed to get Steam Session Ticket. Make sure Steam is running and user is logged in.");
         EmitSignal(SignalName.AuthenticationFinished, false, "", "Steam not available");
@@ -163,7 +165,7 @@ public partial class NetworkManager : Node {
 
       credentials = new Credentials() {
         Type = LoginCredentialType.ExternalAuth,
-        Id = "steam",
+        Id = "",
         Token = steamSessionTicket,
         ExternalType = ExternalCredentialType.SteamSessionTicket
       };
@@ -223,7 +225,6 @@ public partial class NetworkManager : Node {
 
         EmitSignal(SignalName.AuthenticationFinished, true, userInfoData.Value.DisplayName.ToString(), "");
       }
-
       else if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
         // Account needs to be linked
         _continuanceToken = callbackInfo.ContinuanceToken;
@@ -258,7 +259,7 @@ public partial class NetworkManager : Node {
     GD.Print("EOS Login request sent.");
   }
 
-  private string GetSteamSessionTicket() {
+  private async Task<string> GetSteamSessionTicket() {
     try {
       SteamClient.Init(uint.Parse(SteamAppId), true);
     }
@@ -277,13 +278,13 @@ public partial class NetworkManager : Node {
       return "";
     }
 
-    var ticket = SteamUser.GetAuthSessionTicket(SteamClient.SteamId);
-    if (ticket == null || ticket.Data == null || ticket.Data.Length == 0) {
-      GD.PushError("Failed to get Steam session ticket");
-      return "";
-    }
-
-    return Convert.ToBase64String(ticket.Data);
+    AuthTicket ticket = await SteamUser.GetAuthTicketForWebApiAsync("epiconlineservices");
+    //if (ticket == null || ticket.Data == null || ticket.Data.Length == 0) {
+    //  GD.PushError("Failed to get Steam session ticket");
+    //  return "";
+    // }
+    string hexToken = Convert.ToHexString(ticket.Data);
+    return hexToken;
   }
 
   public void LinkSteamAccount() {

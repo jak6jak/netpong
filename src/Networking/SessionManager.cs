@@ -12,7 +12,8 @@ using Epic.OnlineServices.UserInfo;
 using Environment = Godot.Environment;
 
 public partial class SessionManager : RefCounted {
-
+}
+/*
   private string _currentSessionId = null; // Server-side ID of the current session the player is in
   private string _currentSessionNameClientKey = null; // Local name/key used by this client for the current session
   private bool _isSessionOwner = false; // Tracks if the local player is the owner of the current session
@@ -110,7 +111,7 @@ public partial class SessionManager : RefCounted {
     GD.Print("UpdateSession (for creation) request sent.");
     // SessionModificationHandle is consumed by UpdateSession, no need to release it manually.
   }
-
+/*
   private void OnUpdateSessionCompleted(ref UpdateSessionCallbackInfo data) {
     // This callback is used for both creating a new session and modifying an existing one.
     if (data.ResultCode == Result.Success) {
@@ -145,7 +146,7 @@ public partial class SessionManager : RefCounted {
       }
     }
   }
-
+/*
   public void FindEOSSessions(string mapNameFilter = null, int maxResults = 20) {
     if (_sessionsInterface == null || _localPlayerProductID == null) {
       GD.PushError("Sessions interface or local user ID not initialized for FindEOSSessions.");
@@ -227,7 +228,7 @@ public partial class SessionManager : RefCounted {
           sessionDict["MapName"] = "N/A";
 
           // Call CopyInfo on the sessionDetailsHandle to get SessionDetailsInfo [cite: 187]
-          var copyInfoOptions = new SessionDetailsCopyInfoOptions { /* ApiVersion is implicit in C# */ };
+          var copyInfoOptions = new SessionDetailsCopyInfoOptions { /* ApiVersion is implicit in C# };
           Result infoResult = sessionDetailsHandle.CopyInfo(ref copyInfoOptions, out SessionDetailsInfo? sessionInfo);
 
           if (infoResult == Result.Success && sessionInfo.HasValue) {
@@ -239,7 +240,7 @@ public partial class SessionManager : RefCounted {
               sessionDict["MaxPlayers"] = sessionInfo.Value.Settings.Value.NumPublicConnections;
 
               // Retrieve custom attributes like MAPNAME_S from sessionDetailsHandle
-              var getAttrCountOptions = new SessionDetailsGetSessionAttributeCountOptions { /* ApiVersion is implicit */ };
+              var getAttrCountOptions = new SessionDetailsGetSessionAttributeCountOptions { /* ApiVersion is implicit  };
               uint attributesCount = sessionDetailsHandle.GetSessionAttributeCount(ref getAttrCountOptions);
 
               for (uint attrIdx = 0; attrIdx < attributesCount; attrIdx++) {
@@ -331,7 +332,7 @@ public partial class SessionManager : RefCounted {
     // The original handle from search results remains in _lastSearchResults and is managed there.
     // If this `sessionToJoin` came from an invite, its specific handling for release is in AcceptSessionInvite.
   }
-
+/*
   private void OnJoinSessionCompleted(ref JoinSessionCallbackInfo data) {
     if (data.ResultCode == Result.Success) {
       //_currentSessionId = data.SessionId; // Store the actual server-side session ID
@@ -660,3 +661,4 @@ public partial class SessionManager : RefCounted {
     }
   }
 }
+*/
