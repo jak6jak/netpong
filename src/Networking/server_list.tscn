@@ -1,0 +1,66 @@
+[gd_scene load_steps=3 format=3 uid="uid://bg6vq63ha7t1k"]
+
+[ext_resource type="Theme" uid="uid://cpqth0udabyfy" path="res://src/BaseTheme.tres" id="1_8ox83"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_8ox83"]
+font_size = 32
+
+[node name="ServerList" type="VBoxContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme = ExtResource("1_8ox83")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Label" type="Label" parent="Panel/VBoxContainer"]
+layout_mode = 2
+theme = ExtResource("1_8ox83")
+text = "Server List"
+label_settings = SubResource("LabelSettings_8ox83")
+horizontal_alignment = 1
+
+[node name="LineEdit" type="LineEdit" parent="Panel/VBoxContainer"]
+layout_mode = 2
+placeholder_text = "Search"
+
+[node name="ScrollContainer" type="ScrollContainer" parent="Panel/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ServerList" type="GridContainer" parent="Panel/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme = ExtResource("1_8ox83")
+columns = 4
+
+[node name="Label" type="Label" parent="Panel/VBoxContainer/ScrollContainer/ServerList"]
+layout_mode = 2
+text = "Join"
+
+[node name="Label2" type="Label" parent="Panel/VBoxContainer/ScrollContainer/ServerList"]
+layout_mode = 2
+text = "Server Name"
+
+[node name="Label3" type="Label" parent="Panel/VBoxContainer/ScrollContainer/ServerList"]
+layout_mode = 2
+text = "Number Of Players"
+
+[node name="Label4" type="Label" parent="Panel/VBoxContainer/ScrollContainer/ServerList"]
+layout_mode = 2
+text = "Ping"

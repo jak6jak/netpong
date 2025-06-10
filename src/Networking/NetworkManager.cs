@@ -70,16 +70,8 @@ public partial class NetworkManager : Node {
       return;
     }
 
-    //Change LoginCredentialType based on build Type
-    if (OS.HasFeature("steam")) {
-      LoginCredentialType = LoginCredentialType.ExternalAuth;
-    }
-    else if (OS.HasFeature("account")) {
-      LoginCredentialType = LoginCredentialType.AccountPortal;
-    }
-    else {
-      LoginCredentialType = LoginCredentialType.Developer;
-    }
+    //Change LoginCredentialType based on command line arguments or build type
+    SetLoginCredentialTypeFromArgs();
 
 
     var initializeOptions = new Epic.OnlineServices.Platform.InitializeOptions() {
@@ -450,6 +442,45 @@ public partial class NetworkManager : Node {
     return true; // Indicate success even if some values are missing, handle missing values later
   }
 
+  private void SetLoginCredentialTypeFromArgs() {
+    var args = OS.GetCmdlineUserArgs();
+
+    // Check for command line arguments first
+    for (int i = 0; i < args.Length; i++) {
+      string arg = args[i].ToLower();
+      switch (arg) {
+        case "--steam":
+          LoginCredentialType = LoginCredentialType.ExternalAuth;
+          GD.Print("Login type set to ExternalAuth (Steam) via command line");
+          return;
+        case "--developer":
+        case "--dev":
+          LoginCredentialType = LoginCredentialType.Developer;
+          GD.Print("Login type set to Developer via command line");
+          return;
+        case "--account":
+        case "--portal":
+          LoginCredentialType = LoginCredentialType.AccountPortal;
+          GD.Print("Login type set to AccountPortal via command line");
+          return;
+      }
+    }
+
+    // Fallback to build type detection if no command line argument provided
+    if (OS.HasFeature("steam")) {
+      LoginCredentialType = LoginCredentialType.ExternalAuth;
+      GD.Print("Login type set to ExternalAuth (Steam) via build feature");
+    }
+    else if (OS.HasFeature("account")) {
+      LoginCredentialType = LoginCredentialType.AccountPortal;
+      GD.Print("Login type set to AccountPortal via build feature");
+    }
+    else {
+      LoginCredentialType = LoginCredentialType.Developer;
+      GD.Print("Login type set to Developer via build feature");
+    }
+  }
+
   private void ConnectLogin(EpicAccountId localUserId) {
     var connectInterface = EOSPlatformInterface?.GetConnectInterface();
     if (connectInterface == null) {
@@ -458,106 +489,112 @@ public partial class NetworkManager : Node {
       return;
     }
 
-    // For Developer authentication, we need to use Epic ID token instead of CreateUser
-    if (LoginCredentialType == LoginCredentialType.Developer) {
-      var loginOptions = new Epic.OnlineServices.Connect.LoginOptions {
-        Credentials = new Epic.OnlineServices.Connect.Credentials {
-          Type = ExternalCredentialType.EpicIdToken,
-          Token = GetEpicIdToken(localUserId)
-        }
-      };
+    // Get Epic ID token for Connect authentication
+    var idToken = GetEpicIdToken(localUserId);
+    GD.Print($"ConnectLogin: Retrieved ID token, length: {idToken.Length}");
 
-      connectInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Connect.LoginCallbackInfo loginCallbackInfo) => {
-        if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
-          GD.Print($"Connect Login successful! Product User ID: {loginCallbackInfo.LocalUserId}");
-          _localProductUserId = loginCallbackInfo.LocalUserId;
-          InitializeSessionManager();
-          EmitSignal(SignalName.ConnectAuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
-          EmitSignal(SignalName.AuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
-        }
-        else {
-          GD.PushError($"Connect Login failed: {loginCallbackInfo.ResultCode}");
-          EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect Login failed: {loginCallbackInfo.ResultCode}");
-        }
-      });
+    if (string.IsNullOrEmpty(idToken)) {
+      GD.PushError("ConnectLogin: ID token is null or empty, cannot proceed");
+      EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", "ID token is null or empty");
       return;
     }
 
-    var createUserOptions = new CreateUserOptions {
-      ContinuanceToken = _continuanceToken // Use stored continuance token if available
+    // Step 1: Try Connect.Login first (proper EOS Connect flow)
+    var loginOptions = new Epic.OnlineServices.Connect.LoginOptions {
+      Credentials = new Epic.OnlineServices.Connect.Credentials {
+        Type = ExternalCredentialType.EpicIdToken,
+        Token = idToken
+      }
     };
 
-    connectInterface.CreateUser(ref createUserOptions, null, (ref CreateUserCallbackInfo callbackInfo) => {
-      if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
-        GD.Print($"Connect CreateUser successful! Product User ID: {callbackInfo.LocalUserId}");
-        _localProductUserId = callbackInfo.LocalUserId;
+    GD.Print("ConnectLogin: Calling Connect.Login with EpicIdToken");
+    connectInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Connect.LoginCallbackInfo loginCallbackInfo) => {
+      GD.Print($"ConnectLogin: Callback received with result: {loginCallbackInfo.ResultCode}");
+
+      if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+        GD.Print($"Connect Login successful! Product User ID: {loginCallbackInfo.LocalUserId}");
+        _localProductUserId = loginCallbackInfo.LocalUserId;
         InitializeSessionManager();
-        EmitSignal(SignalName.ConnectAuthenticationFinished, true, callbackInfo.LocalUserId.ToString(), "");
-        EmitSignal(SignalName.AuthenticationFinished, true, callbackInfo.LocalUserId.ToString(), "");
+        EmitSignal(SignalName.ConnectAuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+        EmitSignal(SignalName.AuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
       }
-      else if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
-        // User doesn't exist, try to create with existing Epic Account
-        var loginOptions = new Epic.OnlineServices.Connect.LoginOptions {
-          Credentials = new Epic.OnlineServices.Connect.Credentials {
-            Type = ExternalCredentialType.EpicIdToken,
-            Token = GetEpicIdToken(localUserId)
-          }
+      else if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
+        // Step 2: User doesn't exist, use CreateUser with ContinuanceToken from Login callback
+        GD.Print("ConnectLogin: User not found, creating new user with ContinuanceToken");
+
+        // Use ContinuanceToken from Login callback for CreateUser
+        var createUserOptions = new CreateUserOptions {
+          ContinuanceToken = loginCallbackInfo.ContinuanceToken
         };
 
-        connectInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Connect.LoginCallbackInfo loginCallbackInfo) => {
-          if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
-            GD.Print($"Connect Login successful! Product User ID: {loginCallbackInfo.LocalUserId}");
-            _localProductUserId = loginCallbackInfo.LocalUserId;
+        connectInterface.CreateUser(ref createUserOptions, null, (ref CreateUserCallbackInfo createCallbackInfo) => {
+          if (createCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+            GD.Print($"Connect CreateUser successful! Product User ID: {createCallbackInfo.LocalUserId}");
+            _localProductUserId = createCallbackInfo.LocalUserId;
             InitializeSessionManager();
-            EmitSignal(SignalName.ConnectAuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
-            EmitSignal(SignalName.AuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+            EmitSignal(SignalName.ConnectAuthenticationFinished, true, createCallbackInfo.LocalUserId.ToString(), "");
+            EmitSignal(SignalName.AuthenticationFinished, true, createCallbackInfo.LocalUserId.ToString(), "");
           }
           else {
-            GD.PushError($"Connect Login failed: {loginCallbackInfo.ResultCode}");
-            EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect Login failed: {loginCallbackInfo.ResultCode}");
+            GD.PushError($"Connect CreateUser failed: {createCallbackInfo.ResultCode}");
+            EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect CreateUser failed: {createCallbackInfo.ResultCode}");
           }
         });
       }
+      else if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.DuplicateNotAllowed) {
+        // Step 3: User exists but with different identity provider - could implement LinkAccount here
+        GD.Print("ConnectLogin: User exists with different identity provider");
+        // For now, treat as error - could implement account linking in the future
+        GD.PushError($"Connect Login failed - User exists with different identity: {loginCallbackInfo.ResultCode}");
+        EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", "User exists with different identity provider");
+      }
       else {
-        GD.PushError($"Connect CreateUser failed: {callbackInfo.ResultCode}");
-        EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect CreateUser failed: {callbackInfo.ResultCode}");
+        GD.PushError($"Connect Login failed: {loginCallbackInfo.ResultCode}");
+        EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect Login failed: {loginCallbackInfo.ResultCode}");
       }
     });
   }
 
-  private string GetEpicIdToken(EpicAccountId epicAccountId) {
+  private static string GetEpicIdToken(EpicAccountId epicAccountId) {
     var authInterface = EOSPlatformInterface?.GetAuthInterface();
-    if (authInterface == null) return "";
+    if (authInterface is null) {
+      GD.PushError("GetEpicIdToken: Auth Interface is null");
+      return "";
+    }
 
     var copyOptions = new Epic.OnlineServices.Auth.CopyIdTokenOptions {
       AccountId = epicAccountId
     };
 
-    var result = authInterface.CopyIdToken(ref copyOptions, out Epic.OnlineServices.Auth.IdToken? idToken);
+    var result = authInterface.CopyIdToken(ref copyOptions, out var idToken);
+    GD.Print($"GetEpicIdToken: CopyIdToken result: {result}");
+
     if (result == Epic.OnlineServices.Result.Success && idToken.HasValue) {
+      GD.Print("GetEpicIdToken: Successfully retrieved ID token");
       return idToken.Value.JsonWebToken.ToString();
     }
-    
+
+    GD.PushError($"GetEpicIdToken: Failed to get ID token. Result: {result}, HasValue: {idToken.HasValue}");
     return "";
   }
 
   private void InitializeSessionManager() {
     var sessionsInterface = EOSPlatformInterface?.GetSessionsInterface();
-    if (sessionsInterface == null) {
+    if (sessionsInterface is null) {
       GD.PushError("Sessions Interface is null. Cannot initialize Session Manager.");
       return;
     }
 
     // Get the autoloaded SessionManager instance
     var sessionManager = SessionManager.Instance;
-    if (sessionManager == null) {
+    if (sessionManager is null) {
       GD.PushError("SessionManager instance not found. Make sure it's configured as autoload.");
       return;
     }
-    
+
     // Initialize the autoloaded SessionManager
     sessionManager.Initialize(sessionsInterface, _localProductUserId);
-    
+
     GD.Print("Session Manager initialized successfully!");
   }
 

@@ -103,5 +103,45 @@
       "stopAtEntry": false,
       "console": "integratedTerminal"
     },
+    // Multiplayer configurations for testing
+    {
+      "name": "🌐 Debug Server (Host)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${env:GODOT}",
+      "args": [
+        "--path", "${workspaceFolder}",
+        "--",
+        "--username=DevUser2"
+      ],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "👤 Debug Client",
+      "type": "coreclr",
+      "request": "launch", 
+      "program": "${env:GODOT}",
+      "args": [
+        "--path", "${workspaceFolder}",
+        "--",
+        "--username=DevUser1",
+      ],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "🎮 Debug Multiplayer (Server + Client)",
+      "configurations": [
+        "🌐 Debug Server (Host)",
+        "👤 Debug Client"
+      ],
+      "stopAll": true
+    }
   ]
 }
