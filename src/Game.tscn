@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://cywpu6lxdjhuu"]
+[gd_scene load_steps=3 format=3 uid="uid://cywpu6lxdjhuu"]
 
 [ext_resource type="Script" uid="uid://bjwlwa1ddcq8q" path="res://src/HelloLabel.cs" id="1_2c5w0"]
+[ext_resource type="Script" uid="uid://c8774xvuj0inr" path="res://src/Game.cs" id="1_kqvf5"]
 
 [node name="Control" type="Control"]
 layout_mode = 3
@@ -9,6 +10,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+script = ExtResource("1_kqvf5")
 
 [node name="CenterContainer" type="CenterContainer" parent="."]
 layout_mode = 1

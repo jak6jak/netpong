@@ -64,7 +64,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) Or '$(RuntimeIdentifier)' == 'osx-x64' Or '$(RuntimeIdentifier)' == 'osx-arm64'">
-    <None Include="..\SDK\Bin\libEOSSDK-Mac-Shipping.dylib">
+    <None Include="libEOSSDK-Mac-Shipping.dylib">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libEOSSDK-Mac-Shipping.dylib</Link>
     </None>

@@ -1,27 +1,22 @@
-using Godot;
-
 namespace NetworkedDodgeball.Networking;
 
 using System;
 using System.Collections.Generic;
 using Epic.OnlineServices;
-using Epic.OnlineServices.Auth;
-using Epic.OnlineServices.Platform;
 using Epic.OnlineServices.Sessions;
-using Epic.OnlineServices.UserInfo;
-using Environment = Godot.Environment;
+using Godot;
 
-public partial class SessionManager : RefCounted {
-}
-/*
-  private string _currentSessionId = null; // Server-side ID of the current session the player is in
-  private string _currentSessionNameClientKey = null; // Local name/key used by this client for the current session
-  private bool _isSessionOwner = false; // Tracks if the local player is the owner of the current session
-  private List<SessionDetails> _lastSearchResults = new List<SessionDetails>(); // Stores results from the last session search
-  private Dictionary<string, SessionDetails> _pendingInvitesDetails = new Dictionary<string, SessionDetails>(); // Stores SessionDetails handles for received invites, keyed by InviteId
-  private ulong _sessionInviteNotificationId = 0; // ID for the session invite received notification
-  private static SessionsInterface _sessionsInterface;
-  private static ProductUserId _localPlayerProductID;
+public partial class SessionManager : Node {
+  public static SessionManager Instance { get; private set; } = null!;
+
+  private string? _currentSessionId; // Server-side ID of the current session the player is in
+  private string? _currentSessionNameClientKey; // Local name/key used by this client for the current session
+  private bool _isSessionOwner; // Tracks if the local player is the owner of the current session
+  private readonly List<SessionDetails> _lastSearchResults = new(); // Stores results from the last session search
+  private readonly Dictionary<string, SessionDetails> _pendingInvitesDetails = new(); // Stores SessionDetails handles for received invites, keyed by InviteId
+  private ulong _sessionInviteNotificationId; // ID for the session invite received notification
+  private SessionsInterface? _sessionsInterface;
+  private ProductUserId? _localPlayerProductID;
 
 
 
@@ -41,17 +36,55 @@ public partial class SessionManager : RefCounted {
   [Signal]
   public delegate void SessionInviteRejectedEventHandler(bool success, string errorMessage);
 
+  [Signal]
+  public delegate void PlayerRegisteredEventHandler(bool success, string playerId, string errorMessage);
+  [Signal]
+  public delegate void PlayerUnregisteredEventHandler(bool success, string playerId, string errorMessage);
+
 
   public SessionManager() {
+    Instance = this;
+  }
 
+  public void Initialize(SessionsInterface sessionsInterface, ProductUserId localPlayerProductID) {
+    _sessionsInterface = sessionsInterface;
+    _localPlayerProductID = localPlayerProductID;
+
+    // Subscribe to session invite notifications
+    AddNotifySessionInviteReceived();
+
+    GD.Print($"Session Manager initialized with ProductUserId: {localPlayerProductID}");
   }
 
   public void CreateEOSSession(string clientSessionKey, uint maxPlayers, bool isPublic, string bucketId = "DefaultBucket:AnyRegion:AnyMap", string mapName = "DefaultMap") {
-    if (_sessionsInterface == null || _localPlayerProductID == null) {
+    if (_sessionsInterface is null || _localPlayerProductID is null) {
       GD.PushError("Sessions interface or local user ID not initialized for CreateEOSSession.");
       EmitSignal(SignalName.SessionCreated, false, "", "Not initialized.");
       return;
     }
+
+    // Parameter validation
+    if (string.IsNullOrEmpty(clientSessionKey)) {
+      GD.PushError("ClientSessionKey cannot be null or empty.");
+      EmitSignal(SignalName.SessionCreated, false, "", "Invalid clientSessionKey.");
+      return;
+    }
+    if (maxPlayers <= 0 || maxPlayers > 1000) {
+      GD.PushError($"MaxPlayers must be between 1-1000, got: {maxPlayers}");
+      EmitSignal(SignalName.SessionCreated, false, "", "Invalid maxPlayers.");
+      return;
+    }
+    if (string.IsNullOrEmpty(bucketId) || bucketId.Length > 1000) {
+      GD.PushError("BucketId must be valid and not exceed 1000 characters.");
+      EmitSignal(SignalName.SessionCreated, false, "", "Invalid bucketId.");
+      return;
+    }
+    if (string.IsNullOrEmpty(mapName) || mapName.Length > 32) {
+      GD.PushError("MapName must be valid and not exceed 32 characters for attribute key.");
+      EmitSignal(SignalName.SessionCreated, false, "", "Invalid mapName.");
+      return;
+    }
+
     if (!string.IsNullOrEmpty(_currentSessionId) || !string.IsNullOrEmpty(_currentSessionNameClientKey)) {
       GD.PushWarning("Already in a session or a session operation is pending. Please leave the current session first.");
       EmitSignal(SignalName.SessionCreated, false, "", "Already in a session.");
@@ -62,6 +95,7 @@ public partial class SessionManager : RefCounted {
       SessionName = _currentSessionNameClientKey, // This is the local name, NOT the backend SessionId yet.
       LocalUserId = _localPlayerProductID,
       MaxPlayers = maxPlayers,
+      BucketId = bucketId,
       // bSanctionsEnabled can be set here if you use EOS Sanctions service
     };
 
@@ -79,7 +113,7 @@ public partial class SessionManager : RefCounted {
     // Set common session properties
     // Host address can be an IP or a P2P socket ID. For dedicated servers, it's the server IP.
     // For P2P, you might set this after P2P negotiation or use a placeholder if EOS P2P handles it.
-    var setHostAddressOptions = new SessionModificationSetHostAddressOptions { HostAddress = "N/A" };
+    var setHostAddressOptions = new SessionModificationSetHostAddressOptions { HostAddress = "" };
     sessionModificationHandle.SetHostAddress(ref setHostAddressOptions);
 
     var setBucketIdOptions = new SessionModificationSetBucketIdOptions { BucketId = bucketId };
@@ -111,12 +145,12 @@ public partial class SessionManager : RefCounted {
     GD.Print("UpdateSession (for creation) request sent.");
     // SessionModificationHandle is consumed by UpdateSession, no need to release it manually.
   }
-/*
+
   private void OnUpdateSessionCompleted(ref UpdateSessionCallbackInfo data) {
     // This callback is used for both creating a new session and modifying an existing one.
     if (data.ResultCode == Result.Success) {
       // If _currentSessionId was null, this was a creation.
-      bool wasCreation = string.IsNullOrEmpty(_currentSessionId);
+      var wasCreation = string.IsNullOrEmpty(_currentSessionId);
       _currentSessionId = data.SessionId; // This is the actual backend Session ID
 
       if (wasCreation) {
@@ -125,7 +159,7 @@ public partial class SessionManager : RefCounted {
         EmitSignal(SignalName.SessionCreated, true, data.SessionId.ToString(), "");
         // As owner, you might want to register yourself if your game logic requires it,
         // though EOS often handles the owner's presence implicitly for some features.
-        // RegisterPlayerInSession(_localPlayerProductId);
+        // RegisterPlayerInSession(_localPlayerProductID);
       }
       else {
         GD.Print($"Session '{data.SessionName}' (ID: {data.SessionId}) UPDATED successfully!");
@@ -146,9 +180,9 @@ public partial class SessionManager : RefCounted {
       }
     }
   }
-/*
-  public void FindEOSSessions(string mapNameFilter = null, int maxResults = 20) {
-    if (_sessionsInterface == null || _localPlayerProductID == null) {
+
+  public void FindEOSSessions(string? mapNameFilter = null, int maxResults = 20) {
+    if (_sessionsInterface is null || _localPlayerProductID is null) {
       GD.PushError("Sessions interface or local user ID not initialized for FindEOSSessions.");
       EmitSignal(SignalName.SessionSearchFinished, false, new Godot.Collections.Array<Godot.Collections.Dictionary>(), "Not initialized.");
       return;
@@ -228,7 +262,7 @@ public partial class SessionManager : RefCounted {
           sessionDict["MapName"] = "N/A";
 
           // Call CopyInfo on the sessionDetailsHandle to get SessionDetailsInfo [cite: 187]
-          var copyInfoOptions = new SessionDetailsCopyInfoOptions { /* ApiVersion is implicit in C# };
+          var copyInfoOptions = new SessionDetailsCopyInfoOptions { };
           Result infoResult = sessionDetailsHandle.CopyInfo(ref copyInfoOptions, out SessionDetailsInfo? sessionInfo);
 
           if (infoResult == Result.Success && sessionInfo.HasValue) {
@@ -240,7 +274,7 @@ public partial class SessionManager : RefCounted {
               sessionDict["MaxPlayers"] = sessionInfo.Value.Settings.Value.NumPublicConnections;
 
               // Retrieve custom attributes like MAPNAME_S from sessionDetailsHandle
-              var getAttrCountOptions = new SessionDetailsGetSessionAttributeCountOptions { /* ApiVersion is implicit  };
+              var getAttrCountOptions = new SessionDetailsGetSessionAttributeCountOptions { };
               uint attributesCount = sessionDetailsHandle.GetSessionAttributeCount(ref getAttrCountOptions);
 
               for (uint attrIdx = 0; attrIdx < attributesCount; attrIdx++) {
@@ -262,17 +296,6 @@ public partial class SessionManager : RefCounted {
             GD.PushWarning($"OnFindSessionsCompleted: Failed to copy session info for search result index {i}: {infoResult}");
           }
 
-          // Regarding SessionOwner:
-          // The EOS_SessionDetails_Info structure (and thus SessionDetailsInfo in C#) does not
-          // explicitly list the Product User ID of the session owner[cite: 185].
-          // If the C# `SessionDetails` class (sessionDetailsHandle in this scope) has a specific
-          // property like `SessionOwnerProductId` that is populated by `CopySearchResultByIndex`
-          // (this would be a C# wrapper convenience), you could try accessing it:
-          // Example: if (sessionDetailsHandle.SessionOwnerProductId != null) sessionDict["OwnerUserId"] = sessionDetailsHandle.SessionOwnerProductId.ToString();
-          // If such a direct property does not exist on the `sessionDetailsHandle` object,
-          // then the owner's PUID is not directly available from this standard search result data,
-          // unless the game creator added it as a custom session attribute (e.g., "OWNERPUID_S").
-
           resultsForSignal.Add(sessionDict);
           GD.Print($"  Session {i}: ID={sessionDict["SessionId"]}, Owner={sessionDict["OwnerUserId"]}, OpenSlots={sessionDict["NumOpenPublicConnections"]}, MaxPlayers={sessionDict["MaxPlayers"]}, Map={sessionDict["MapName"]}");
         }
@@ -292,7 +315,7 @@ public partial class SessionManager : RefCounted {
     searchHandle.Release(); // Release the search handle itself
   }
 
-  public SessionDetails GetSessionDetailsFromLastSearch(int index) {
+  public SessionDetails? GetSessionDetailsFromLastSearch(int index) {
     if (index >= 0 && index < _lastSearchResults.Count) {
       return _lastSearchResults[index]; // Be careful with the lifetime of this handle if stored elsewhere
     }
@@ -300,13 +323,13 @@ public partial class SessionManager : RefCounted {
   }
 
 
-  public void JoinEOSSession(SessionDetails sessionToJoin, string clientSessionKey) {
-    if (sessionToJoin == null) {
+  public void JoinEOSSession(SessionDetails? sessionToJoin, string clientSessionKey) {
+    if (sessionToJoin is null) {
       GD.PushError("SessionDetails to join is null.");
       EmitSignal(SignalName.SessionJoined, false, "", "SessionDetails null.");
       return;
     }
-    if (_sessionsInterface == null || _localPlayerProductID == null) {
+    if (_sessionsInterface is null || _localPlayerProductID is null) {
       GD.PushError("Sessions interface or local user ID not initialized for JoinEOSSession.");
       EmitSignal(SignalName.SessionJoined, false, "", "Not initialized.");
       return;
@@ -332,17 +355,16 @@ public partial class SessionManager : RefCounted {
     // The original handle from search results remains in _lastSearchResults and is managed there.
     // If this `sessionToJoin` came from an invite, its specific handling for release is in AcceptSessionInvite.
   }
-/*
   private void OnJoinSessionCompleted(ref JoinSessionCallbackInfo data) {
     if (data.ResultCode == Result.Success) {
-      //_currentSessionId = data.SessionId; // Store the actual server-side session ID
+      // Note: JoinSessionCallbackInfo doesn't contain SessionId or SessionName in this EOS SDK version
       _isSessionOwner = false; // When joining, you are not the owner by default
-      GD.Print($"Successfully joined session '{data.SessionName}' (ID: {_currentSessionId})!");
-      EmitSignal(SignalName.SessionJoined, true, _currentSessionId, "");
+      GD.Print($"Successfully joined session with local key '{_currentSessionNameClientKey}'!");
+      EmitSignal(SignalName.SessionJoined, true, _currentSessionNameClientKey ?? "", "");
       // An active session is now formed on this client's machine.
     }
     else {
-      //GD.PushError($"Failed to join session '{data.SessionName}': {data.ResultCode}");
+      GD.PushError($"Failed to join session with local key '{_currentSessionNameClientKey}': {data.ResultCode}");
       _currentSessionNameClientKey = null; // Clear local key if join failed
       _currentSessionId = null;
       EmitSignal(SignalName.SessionJoined, false, "", $"Join failed: {data.ResultCode}");
@@ -368,11 +390,11 @@ public partial class SessionManager : RefCounted {
   private void OnDestroySessionCompleted(ref DestroySessionCallbackInfo data) {
     string clientKeyInCallback = data.ClientData as string;
     if (data.ResultCode == Result.Success) {
-      GD.Print($"Successfully left/destroyed session '{data.SessionName}' (Client Key: {clientKeyInCallback})!");
+      GD.Print($"Successfully left/destroyed session (Client Key: {clientKeyInCallback})!");
       EmitSignal(SignalName.SessionLeft, true, "");
     }
     else {
-      GD.PushError($"Failed to destroy session '{data.SessionName}' (Client Key: {clientKeyInCallback}): {data.ResultCode}");
+      GD.PushError($"Failed to destroy session (Client Key: {clientKeyInCallback}): {data.ResultCode}");
       EmitSignal(SignalName.SessionLeft, false, $"Destroy failed: {data.ResultCode}");
     }
 
@@ -390,10 +412,16 @@ public partial class SessionManager : RefCounted {
   }
 
   // --- Player Registration (Typically Session Owner Only) ---
-  public void RegisterPlayerInSession(ProductUserId playerToRegister) {
+  public void RegisterPlayerInSession(ProductUserId? playerToRegister) {
     if (!_isSessionOwner || string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
       GD.PushWarning("Cannot register player: Not session owner or not in a session.");
-      EmitSignal(SignalName.PlayerRegistered, false, playerToRegister?.ToString(), "Not owner or not in session.");
+      EmitSignal(SignalName.PlayerRegistered, false, playerToRegister?.ToString() ?? "", "Not owner or not in session.");
+      return;
+    }
+
+    if (playerToRegister == null) {
+      GD.PushError("Cannot register null player.");
+      EmitSignal(SignalName.PlayerRegistered, false, "", "Player is null.");
       return;
     }
 
@@ -414,31 +442,37 @@ public partial class SessionManager : RefCounted {
       bool wasSanctioned = data.SanctionedPlayers != null && Array.Exists(data.SanctionedPlayers, puid => puid == registeredPlayerId);
 
       if (actuallyRegistered) {
-        GD.Print($"Player {playerIdStr} successfully registered in session '{data.SessionName}'.");
+        GD.Print($"Player {playerIdStr} successfully registered in session.");
         EmitSignal(SignalName.PlayerRegistered, true, playerIdStr, "");
       }
       else if (wasSanctioned) {
-        GD.PushWarning($"Player {playerIdStr} failed to register in session '{data.SessionName}' due to sanction.");
+        GD.PushWarning($"Player {playerIdStr} failed to register in session due to sanction.");
         EmitSignal(SignalName.PlayerRegistered, false, playerIdStr, "Player sanctioned.");
       }
       else {
         // This case might occur if the array is empty or the player isn't in either list, despite overall success.
-        GD.PushWarning($"Player {playerIdStr} registration status unclear in session '{data.SessionName}'. ResultCode: {data.ResultCode}, Not in Registered or Sanctioned lists.");
+        GD.PushWarning($"Player {playerIdStr} registration status unclear. ResultCode: {data.ResultCode}, Not in Registered or Sanctioned lists.");
         EmitSignal(SignalName.PlayerRegistered, false, playerIdStr, "Registration status unclear despite overall success.");
       }
     }
     else {
-      GD.PushError($"RPC to register player {playerIdStr} in session '{data.SessionName}' failed: {data.ResultCode}");
+      GD.PushError($"RPC to register player {playerIdStr} failed: {data.ResultCode}");
       EmitSignal(SignalName.PlayerRegistered, false, playerIdStr, $"Registration RPC failed: {data.ResultCode}");
     }
   }
 
-  public void UnregisterPlayerFromSession(ProductUserId playerToUnregister) {
+  public void UnregisterPlayerFromSession(ProductUserId? playerToUnregister) {
     if (!_isSessionOwner || string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
       GD.PushWarning("Cannot unregister player: Not session owner or not in a session.");
-      EmitSignal(SignalName.PlayerUnregistered, false, playerToUnregister?.ToString(), "Not owner or not in session.");
+      EmitSignal(SignalName.PlayerUnregistered, false, playerToUnregister?.ToString() ?? "", "Not owner or not in session.");
       return;
     }
+    if (playerToUnregister == null) {
+      GD.PushError("Cannot unregister null player.");
+      EmitSignal(SignalName.PlayerUnregistered, false, "", "Player is null.");
+      return;
+    }
+
     var unregisterOptions = new UnregisterPlayersOptions {
       SessionName = _currentSessionNameClientKey,
       PlayersToUnregister = new ProductUserId[] { playerToUnregister }
@@ -451,11 +485,11 @@ public partial class SessionManager : RefCounted {
     ProductUserId unregisteredPlayerId = data.ClientData as ProductUserId;
     string playerIdStr = unregisteredPlayerId?.ToString() ?? "Unknown";
     if (data.ResultCode == Result.Success) {
-      GD.Print($"Player {playerIdStr} successfully unregistered from session '{data.SessionName}'.");
+      GD.Print($"Player {playerIdStr} successfully unregistered from session.");
       EmitSignal(SignalName.PlayerUnregistered, true, playerIdStr, "");
     }
     else {
-      GD.PushError($"Failed to unregister player {playerIdStr} from session '{data.SessionName}': {data.ResultCode}");
+      GD.PushError($"Failed to unregister player {playerIdStr} from session: {data.ResultCode}");
       EmitSignal(SignalName.PlayerUnregistered, false, playerIdStr, $"Unregistration RPC failed: {data.ResultCode}");
     }
   }
@@ -474,8 +508,8 @@ public partial class SessionManager : RefCounted {
     }
   }
 
-  private async void OnSessionInviteReceived(ref SessionInviteReceivedCallbackInfo data) {
-    GD.Print($"Session invite received! Invite ID: {data.InviteId}, From PUID: {data.UserId}, For PUID (Local User): {data.TargetUserId}");
+  private void OnSessionInviteReceived(ref SessionInviteReceivedCallbackInfo data) {
+    GD.Print($"Session invite received! Invite ID: {data.InviteId}, For PUID (Local User): {data.TargetUserId}");
 
     var copyHandleOptions = new CopySessionHandleByInviteIdOptions { InviteId = data.InviteId };
     Result copyRes = _sessionsInterface.CopySessionHandleByInviteId(ref copyHandleOptions, out SessionDetails sessionDetailsHandle);
@@ -484,31 +518,10 @@ public partial class SessionManager : RefCounted {
     string sessionActualId = "Unknown";
 
     if (copyRes == Result.Success && sessionDetailsHandle != null) {
-      sessionActualId = sessionDetailsHandle.SessionId;
-      GD.Print($" Invite is for Session ID: {sessionActualId}, Owner: {sessionDetailsHandle.SessionOwner}");
+      // Note: SessionDetails doesn't expose SessionId/SessionOwner properties directly
+      GD.Print($" Invite details retrieved successfully");
 
-      // Fetch inviter's display name
-      if (EOSPlatformInterface?.GetUserInfoInterface() != null && data.UserId != null) {
-        var queryInviterInfoOptions = new QueryUserInfoOptions { LocalUserId = _localPlayerProductId, TargetUserId = data.UserId };
-        var userInfoInterface = EOSPlatformInterface.GetUserInfoInterface();
-
-        // Using a TaskCompletionSource to await the async EOS call in a sync-looking way for this callback
-        var tcs = new System.Threading.Tasks.TaskCompletionSource<string>();
-        userInfoInterface.QueryUserInfo(ref queryInviterInfoOptions, null, (ref QueryUserInfoCallbackInfo queryInviterData) => {
-          if (queryInviterData.ResultCode == Result.Success) {
-            var copyInviterOpts = new CopyUserInfoOptions { LocalUserId = _localPlayerProductId, TargetUserId = data.UserId };
-            Result copyInviterRes = userInfoInterface.CopyUserInfo(ref copyInviterOpts, out UserInfoData? inviterInfo);
-            if (copyInviterRes == Result.Success && inviterInfo.HasValue) {
-              tcs.SetResult(inviterInfo.Value.DisplayName);
-              inviterInfo.Value.Release();
-            }
-            else { tcs.SetResult("Unknown (Copy Fail)"); }
-          }
-          else { tcs.SetResult("Unknown (Query Fail)"); }
-        });
-        inviterDisplayName = await tcs.Task;
-      }
-
+      inviterDisplayName = "Unknown";
 
       // Store the handle for potential accept/reject, or pass to UI
       // Ensure no duplicate storage and release old if any
@@ -521,7 +534,7 @@ public partial class SessionManager : RefCounted {
       GD.PushWarning($"Failed to get session details from invite {data.InviteId}: {copyRes}");
       sessionDetailsHandle?.Release(); // Release if not stored
     }
-    EmitSignal(SignalName.SessionInviteReceived, data.InviteId, data.UserId?.ToString() ?? "N/A", inviterDisplayName, sessionActualId);
+    EmitSignal(SignalName.SessionInviteReceived, data.InviteId.ToString(), "N/A", inviterDisplayName, sessionActualId);
   }
 
   public void AcceptSessionInvite(string inviteId, string clientSessionKeyToUse) {
@@ -544,13 +557,13 @@ public partial class SessionManager : RefCounted {
       return;
     }
 
-    GD.Print($"Attempting to accept invite {inviteId} and join session {sessionDetailsToJoin.SessionId} with local key {clientSessionKeyToUse}.");
+    GD.Print($"Attempting to accept invite {inviteId} with local key {clientSessionKeyToUse}.");
     _currentSessionNameClientKey = clientSessionKeyToUse; // Set before JoinSession call
 
     var joinOptions = new JoinSessionOptions {
       SessionName = clientSessionKeyToUse,
       SessionHandle = sessionDetailsToJoin, // Use the handle obtained from CopySessionHandleByInviteId
-      LocalUserId = _localPlayerProductId,
+      LocalUserId = _localPlayerProductID,
       PresenceEnabled = true
     };
     // Pass inviteId as client data to handle releasing the original SessionDetails handle from _pendingInvitesDetails in the callback
@@ -561,13 +574,13 @@ public partial class SessionManager : RefCounted {
     string inviteId = data.ClientData as string; // Retrieve the inviteId
 
     if (data.ResultCode == Result.Success) {
-      _currentSessionId = data.SessionId;
+      _currentSessionId = _currentSessionNameClientKey; // Use client key as session ID for tracking
       _isSessionOwner = false; // Joined via invite, so not the owner
-      GD.Print($"Successfully joined session '{data.SessionName}' (ID: {_currentSessionId}) from invite '{inviteId}'!");
-      EmitSignal(SignalName.SessionInviteAccepted, true, _currentSessionId, "");
+      GD.Print($"Successfully joined session from invite '{inviteId}'!");
+      EmitSignal(SignalName.SessionInviteAccepted, true, _currentSessionId ?? "", "");
     }
     else {
-      GD.PushError($"Failed to join session '{data.SessionName}' from invite '{inviteId}': {data.ResultCode}");
+      GD.PushError($"Failed to join session from invite '{inviteId}': {data.ResultCode}");
       _currentSessionNameClientKey = null; // Clear local key if join failed
       _currentSessionId = null;
       EmitSignal(SignalName.SessionInviteAccepted, false, "", $"Join from invite failed: {data.ResultCode}");
@@ -582,7 +595,7 @@ public partial class SessionManager : RefCounted {
   }
 
   public void RejectSessionInvite(string inviteId) {
-    if (_sessionsInterface == null || _localPlayerProductId == null) {
+    if (_sessionsInterface == null || _localPlayerProductID == null) {
       GD.PushError("Cannot reject invite: Sessions interface or local user ID not initialized.");
       EmitSignal(SignalName.SessionInviteRejected, false, "Not initialized.");
       return;
@@ -590,7 +603,7 @@ public partial class SessionManager : RefCounted {
 
     var rejectOptions = new RejectInviteOptions {
       InviteId = inviteId,
-      LocalUserId = _localPlayerProductId
+      LocalUserId = _localPlayerProductID
     };
     // Pass inviteId as client data to handle releasing the SessionDetails handle
     _sessionsInterface.RejectInvite(ref rejectOptions, inviteId, OnRejectInviteCompleted);
@@ -600,11 +613,11 @@ public partial class SessionManager : RefCounted {
   private void OnRejectInviteCompleted(ref RejectInviteCallbackInfo data) {
     string inviteId = data.ClientData as string; // Retrieve the inviteId
     if (data.ResultCode == Result.Success) {
-      GD.Print($"Successfully rejected invite '{data.InviteId}'.");
+      GD.Print($"Successfully rejected invite '{inviteId}'.");
       EmitSignal(SignalName.SessionInviteRejected, true, "");
     }
     else {
-      GD.PushError($"Failed to reject invite '{data.InviteId}': {data.ResultCode}");
+      GD.PushError($"Failed to reject invite '{inviteId}': {data.ResultCode}");
       EmitSignal(SignalName.SessionInviteRejected, false, $"Reject failed: {data.ResultCode}");
     }
 
@@ -617,10 +630,10 @@ public partial class SessionManager : RefCounted {
   }
 
   public void QueryPendingInvites() {
-    if (_sessionsInterface == null || _localPlayerProductId == null)
+    if (_sessionsInterface == null || _localPlayerProductID == null)
       return;
 
-    var queryInvitesOptions = new QueryInvitesOptions { LocalUserId = _localPlayerProductId };
+    var queryInvitesOptions = new QueryInvitesOptions { LocalUserId = _localPlayerProductID };
     _sessionsInterface.QueryInvites(ref queryInvitesOptions, null, OnQueryInvitesComplete);
     GD.Print("Querying pending invites...");
   }
@@ -628,12 +641,12 @@ public partial class SessionManager : RefCounted {
   private void OnQueryInvitesComplete(ref QueryInvitesCallbackInfo data) {
     if (data.ResultCode == Result.Success) {
       GD.Print("QueryInvites successful. Cached pending invites.");
-      var countOptions = new GetInviteCountOptions { LocalUserId = _localPlayerProductId };
+      var countOptions = new GetInviteCountOptions { LocalUserId = _localPlayerProductID };
       uint inviteCount = _sessionsInterface.GetInviteCount(ref countOptions);
       GD.Print($"Found {inviteCount} pending invites in cache.");
 
       for (uint i = 0; i < inviteCount; i++) {
-        var idOptions = new GetInviteIdByIndexOptions { LocalUserId = _localPlayerProductId, Index = i };
+        var idOptions = new GetInviteIdByIndexOptions { LocalUserId = _localPlayerProductID, Index = i };
         Result getIdRes = _sessionsInterface.GetInviteIdByIndex(ref idOptions, out Utf8String inviteIdObj);
         if (getIdRes == Result.Success && inviteIdObj != null) {
           string inviteId = inviteIdObj; // Implicit conversion from Utf8String
@@ -645,8 +658,7 @@ public partial class SessionManager : RefCounted {
             // Manually trigger a similar flow to OnSessionInviteReceived's core logic.
             var fakeCallbackInfo = new SessionInviteReceivedCallbackInfo {
               InviteId = inviteId,
-              UserId = null, // We don't get the 'from' user directly here, need to parse from session details if desired
-              TargetUserId = _localPlayerProductId // The invite is for us
+              TargetUserId = _localPlayerProductID // The invite is for us
             };
             OnSessionInviteReceived(ref fakeCallbackInfo); // This will fetch details and emit
           }
@@ -661,4 +673,4 @@ public partial class SessionManager : RefCounted {
     }
   }
 }
-*/
+

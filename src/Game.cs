@@ -2,89 +2,92 @@ namespace NetworkedDodgeball;
 
 using Godot;
 using Godot.Collections;
-
+using NetworkedDodgeball.Networking;
 public partial class Game : Control {
   public Button CreateGameButton { get; private set; } = default!;
   public Button JoinButton { get; private set; } = default!;
   public int ButtonPresses { get; private set; }
   public ItemList PlayerList { get; private set; } = default!;
-  private Lobby _lobby;
+  //private Lobby _lobby;
   public override void _Ready() {
     CreateGameButton = GetNode<Button>("%CreateGame");
     JoinButton = GetNode<Button>("%JoinGame");
     PlayerList = GetNode<ItemList>("%PlayerList");
-    _lobby = Lobby.Instance;
 
-    _lobby.PlayerConnected += OnPlayerConnected;
-    _lobby.PlayerDisconnected += OnPlayerDisconnected;
-    _lobby.ServerDisconnected += OnServerDisconnected;
+    NetworkManager.Instance.AuthenticationFinished += OnAuthFinished;
 
+  }
+  private void OnAuthFinished(bool success, string localUserId, string errorMessage) {
+    if (!success) {
+      GD.PrintErr($"Authentication failed for user: {localUserId}");
+      return;
+    }
+    var sessionManager = SessionManager.Instance;
+    if (sessionManager != null) {
+      sessionManager.SessionCreated += OnSessionCreated;
+      sessionManager.SessionJoined += OnSessionJoined;
+      sessionManager.SessionSearchFinished += OnSessionSearchFinished;
+      GD.Print("Connected to Session Manager signals");
+      JoinButton.Pressed += OnSearchEOSSessionsPressed;
+      CreateGameButton.Pressed += OnCreateEOSSessionPressed;
+
+    }
+
+  }
+  private void OnSessionCreated(bool success, string sessionId, string errorMessage) {
+    if (success) {
+      GD.Print($"EOS Session created successfully: {sessionId}");
+    }
+    else {
+      GD.PushError($"EOS Session creation failed: {errorMessage}");
+    }
+  }
+
+  private void OnSessionJoined(bool success, string sessionId, string errorMessage) {
+    if (success) {
+      GD.Print($"EOS Session joined successfully: {sessionId}");
+    }
+    else {
+      GD.PushError($"EOS Session join failed: {errorMessage}");
+    }
+  }
+
+  private void OnSessionSearchFinished(bool success, Godot.Collections.Array<Godot.Collections.Dictionary> searchResults, string errorMessage) {
+    if (success) {
+      GD.Print($"EOS Session search completed. Found {searchResults.Count} sessions:");
+      foreach (var result in searchResults) {
+        GD.Print($"  - Session ID: {result["SessionId"]}, Players: {result["NumOpenPublicConnections"]}/{result["MaxPlayers"]}, Map: {result["MapName"]}");
+      }
+    }
+    else {
+      GD.PushError($"EOS Session search failed: {errorMessage}");
+    }
   }
 
   private void OnServerDisconnected() {
     throw new System.NotImplementedException();
   }
 
-  private void OnPlayerDisconnected(int peerid) {
-    GD.Print(peerid + " was disconnected");
-    UpdatePlayerList();
-  }
-
-  private void OnPlayerConnected(int peerid, Dictionary<string, string> playerinfo) => UpdatePlayerList();
-
-
-  private void UpdatePlayerList() {
-    PlayerList.Clear();
-
-    // Add all connected players to the list
-    foreach (var playerEntry in _lobby._players)
-    {
-      long playerId = playerEntry.Key;
-      var playerInfo = playerEntry.Value;
-      string playerName = playerInfo["Name"];
-
-      // You can format the display text however you want
-      string displayText = playerName;
-
-      // Add additional info if needed (e.g., show which one is the host)
-      if (playerId == 1)
-      {
-        displayText += " (Host)";
-      }
-
-
-      // Add the player to the list
-      // You can use a different icon for each player if you want
-      int index = PlayerList.AddItem(displayText);
-      if (playerId == Multiplayer.MultiplayerPeer.GetUniqueId()) {
-        PlayerList.SetItemCustomFgColor(index, new Color(0, .5f, 1));
-      }
-    }
-  }
-  public void OnCreateGamePressed() {
-
-
-    Error error = _lobby.CreateGame();
-    if (error != Error.Ok) {
-      GD.PushError("Failed to create game");
+  // Test methods for Session Manager
+  public void OnCreateEOSSessionPressed() {
+    var sessionManager = SessionManager.Instance;
+    if (sessionManager != null) {
+      sessionManager.CreateEOSSession("TestSession", 4, true, "DefaultBucket:AnyRegion:AnyMap", "TestMap");
+      GD.Print("Creating EOS Session...");
     }
     else {
-      string playerName = "Jacob" + Multiplayer.MultiplayerPeer.GetUniqueId();
-      _lobby._playerInfo["Name"] = playerName;
+      GD.PushError("Session Manager not available");
     }
   }
 
-  public void OnJoinGamePressed() {
-
-
-    Error error = _lobby.JoinGame("127.0.0.1");
-    if (error != Error.Ok) {
-      GD.PushError("Failed to Join game");
+  public void OnSearchEOSSessionsPressed() {
+    var sessionManager = SessionManager.Instance;
+    if (sessionManager != null) {
+      sessionManager.FindEOSSessions("TestMap", 10);
+      GD.Print("Searching for EOS Sessions...");
     }
     else {
-      string playerName = "Jacob" + Multiplayer.MultiplayerPeer.GetUniqueId();
-      _lobby._playerInfo["Name"] = playerName;
+      GD.PushError("Session Manager not available");
     }
-
   }
 }

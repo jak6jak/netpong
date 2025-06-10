@@ -6,7 +6,9 @@ using System.ComponentModel;
 using System.Threading.Tasks;
 using Epic.OnlineServices;
 using Epic.OnlineServices.Auth;
+using Epic.OnlineServices.Connect;
 using Epic.OnlineServices.Platform;
+using Epic.OnlineServices.Sessions;
 using Epic.OnlineServices.UserInfo;
 using Godot;
 using Steamworks;
@@ -35,11 +37,14 @@ public partial class NetworkManager : Node {
   public string LoginCredentialId;
   public string LoginCredentialToken;
   private ContinuanceToken _continuanceToken; // Store continuance token for account linking
+  private ProductUserId _localProductUserId; // Store Product User ID for Game Services
 
   [Signal]
   public delegate void AuthenticationFinishedEventHandler(bool success, string localUserId, string errorMessage);
   [Signal]
   public delegate void AccountLinkingRequiredEventHandler(); // Signal when account linking is needed
+  [Signal]
+  public delegate void ConnectAuthenticationFinishedEventHandler(bool success, string productUserId, string errorMessage);
 
   // --- EOS SDK State ---
   public static PlatformInterface EOSPlatformInterface { get; private set; }
@@ -132,7 +137,7 @@ public partial class NetworkManager : Node {
   private async Task Authenticate() {
     GD.Print($"Attempting EOS Login with type: {LoginCredentialType}");
 
-    Credentials credentials;
+    Epic.OnlineServices.Auth.Credentials credentials;
 
     if (LoginCredentialType == LoginCredentialType.Developer) {
       if (string.IsNullOrEmpty(DeveloperLoginUserName)) {
@@ -154,7 +159,7 @@ public partial class NetworkManager : Node {
       }
 
 
-      credentials = new Credentials() {
+      credentials = new Epic.OnlineServices.Auth.Credentials() {
         Type = LoginCredentialType.Developer,
         Id = DevAuthURL,
         Token = DeveloperLoginUserName,
@@ -164,7 +169,7 @@ public partial class NetworkManager : Node {
     }
     else if (LoginCredentialType == LoginCredentialType.AccountPortal) {
       // AccountPortal uses external browser, Id and Token are null initially
-      credentials = new Credentials() { Type = LoginCredentialType.AccountPortal, Id = null, Token = null };
+      credentials = new Epic.OnlineServices.Auth.Credentials() { Type = LoginCredentialType.AccountPortal, Id = null, Token = null };
     }
     else if (LoginCredentialType == LoginCredentialType.ExternalAuth) {
       // Steam login
@@ -175,7 +180,7 @@ public partial class NetworkManager : Node {
         return;
       }
 
-      credentials = new Credentials() {
+      credentials = new Epic.OnlineServices.Auth.Credentials() {
         Type = LoginCredentialType.ExternalAuth,
         Id = "",
         Token = steamSessionTicket,
@@ -192,7 +197,7 @@ public partial class NetworkManager : Node {
     }
 
 
-    var loginOptions = new LoginOptions() {
+    var loginOptions = new Epic.OnlineServices.Auth.LoginOptions() {
       Credentials = credentials,
 
       // Adjust scopes as needed for your game
@@ -212,7 +217,7 @@ public partial class NetworkManager : Node {
     }
 
 
-    authInterface.Login(ref loginOptions, null, (ref LoginCallbackInfo callbackInfo) => {
+    authInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Auth.LoginCallbackInfo callbackInfo) => {
       if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
         GD.Print(
           $"Login successful! Local User ID: {callbackInfo.LocalUserId}, Display Name: {callbackInfo.LocalUserId.ToString()}");
@@ -235,7 +240,8 @@ public partial class NetworkManager : Node {
         EOSPlatformInterface.GetUserInfoInterface().CopyUserInfo(ref copyUserInfoOptions, out userInfoData);
 
 
-        EmitSignal(SignalName.AuthenticationFinished, true, userInfoData.Value.DisplayName.ToString(), "");
+        // After successful Auth, proceed with Connect authentication
+        ConnectLogin(callbackInfo.LocalUserId);
       }
       else if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
         // Account needs to be linked
@@ -305,7 +311,7 @@ public partial class NetworkManager : Node {
       return;
     }
 
-    var linkAccountOptions = new LinkAccountOptions {
+    var linkAccountOptions = new Epic.OnlineServices.Auth.LinkAccountOptions {
       ContinuanceToken = _continuanceToken,
       LinkAccountFlags = 0 // Use 0 for no flags as we're linking with external auth
     };
@@ -316,7 +322,7 @@ public partial class NetworkManager : Node {
       return;
     }
 
-    authInterface.LinkAccount(ref linkAccountOptions, null, (ref LinkAccountCallbackInfo callbackInfo) => {
+    authInterface.LinkAccount(ref linkAccountOptions, null, (ref Epic.OnlineServices.Auth.LinkAccountCallbackInfo callbackInfo) => {
       if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
         GD.Print("Account linked successfully");
         // Retry authentication after successful linking
@@ -442,6 +448,117 @@ public partial class NetworkManager : Node {
     GD.Print("EOSManager: Configuration loaded.");
 
     return true; // Indicate success even if some values are missing, handle missing values later
+  }
+
+  private void ConnectLogin(EpicAccountId localUserId) {
+    var connectInterface = EOSPlatformInterface?.GetConnectInterface();
+    if (connectInterface == null) {
+      GD.PushError("Connect Interface is null. Cannot proceed with Connect authentication.");
+      EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", "Connect Interface null");
+      return;
+    }
+
+    // For Developer authentication, we need to use Epic ID token instead of CreateUser
+    if (LoginCredentialType == LoginCredentialType.Developer) {
+      var loginOptions = new Epic.OnlineServices.Connect.LoginOptions {
+        Credentials = new Epic.OnlineServices.Connect.Credentials {
+          Type = ExternalCredentialType.EpicIdToken,
+          Token = GetEpicIdToken(localUserId)
+        }
+      };
+
+      connectInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Connect.LoginCallbackInfo loginCallbackInfo) => {
+        if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+          GD.Print($"Connect Login successful! Product User ID: {loginCallbackInfo.LocalUserId}");
+          _localProductUserId = loginCallbackInfo.LocalUserId;
+          InitializeSessionManager();
+          EmitSignal(SignalName.ConnectAuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+          EmitSignal(SignalName.AuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+        }
+        else {
+          GD.PushError($"Connect Login failed: {loginCallbackInfo.ResultCode}");
+          EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect Login failed: {loginCallbackInfo.ResultCode}");
+        }
+      });
+      return;
+    }
+
+    var createUserOptions = new CreateUserOptions {
+      ContinuanceToken = _continuanceToken // Use stored continuance token if available
+    };
+
+    connectInterface.CreateUser(ref createUserOptions, null, (ref CreateUserCallbackInfo callbackInfo) => {
+      if (callbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+        GD.Print($"Connect CreateUser successful! Product User ID: {callbackInfo.LocalUserId}");
+        _localProductUserId = callbackInfo.LocalUserId;
+        InitializeSessionManager();
+        EmitSignal(SignalName.ConnectAuthenticationFinished, true, callbackInfo.LocalUserId.ToString(), "");
+        EmitSignal(SignalName.AuthenticationFinished, true, callbackInfo.LocalUserId.ToString(), "");
+      }
+      else if (callbackInfo.ResultCode == Epic.OnlineServices.Result.InvalidUser) {
+        // User doesn't exist, try to create with existing Epic Account
+        var loginOptions = new Epic.OnlineServices.Connect.LoginOptions {
+          Credentials = new Epic.OnlineServices.Connect.Credentials {
+            Type = ExternalCredentialType.EpicIdToken,
+            Token = GetEpicIdToken(localUserId)
+          }
+        };
+
+        connectInterface.Login(ref loginOptions, null, (ref Epic.OnlineServices.Connect.LoginCallbackInfo loginCallbackInfo) => {
+          if (loginCallbackInfo.ResultCode == Epic.OnlineServices.Result.Success) {
+            GD.Print($"Connect Login successful! Product User ID: {loginCallbackInfo.LocalUserId}");
+            _localProductUserId = loginCallbackInfo.LocalUserId;
+            InitializeSessionManager();
+            EmitSignal(SignalName.ConnectAuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+            EmitSignal(SignalName.AuthenticationFinished, true, loginCallbackInfo.LocalUserId.ToString(), "");
+          }
+          else {
+            GD.PushError($"Connect Login failed: {loginCallbackInfo.ResultCode}");
+            EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect Login failed: {loginCallbackInfo.ResultCode}");
+          }
+        });
+      }
+      else {
+        GD.PushError($"Connect CreateUser failed: {callbackInfo.ResultCode}");
+        EmitSignal(SignalName.ConnectAuthenticationFinished, false, "", $"Connect CreateUser failed: {callbackInfo.ResultCode}");
+      }
+    });
+  }
+
+  private string GetEpicIdToken(EpicAccountId epicAccountId) {
+    var authInterface = EOSPlatformInterface?.GetAuthInterface();
+    if (authInterface == null) return "";
+
+    var copyOptions = new Epic.OnlineServices.Auth.CopyIdTokenOptions {
+      AccountId = epicAccountId
+    };
+
+    var result = authInterface.CopyIdToken(ref copyOptions, out Epic.OnlineServices.Auth.IdToken? idToken);
+    if (result == Epic.OnlineServices.Result.Success && idToken.HasValue) {
+      return idToken.Value.JsonWebToken.ToString();
+    }
+    
+    return "";
+  }
+
+  private void InitializeSessionManager() {
+    var sessionsInterface = EOSPlatformInterface?.GetSessionsInterface();
+    if (sessionsInterface == null) {
+      GD.PushError("Sessions Interface is null. Cannot initialize Session Manager.");
+      return;
+    }
+
+    // Get the autoloaded SessionManager instance
+    var sessionManager = SessionManager.Instance;
+    if (sessionManager == null) {
+      GD.PushError("SessionManager instance not found. Make sure it's configured as autoload.");
+      return;
+    }
+    
+    // Initialize the autoloaded SessionManager
+    sessionManager.Initialize(sessionsInterface, _localProductUserId);
+    
+    GD.Print("Session Manager initialized successfully!");
   }
 
   public override void _ExitTree() {
