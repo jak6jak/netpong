@@ -57,9 +57,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>EOSSDK-Win64-Shipping.dll</Link>
     </None>
-    <None Include="libsteam_api.dylib">
+    <None Include="steam_api64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>steam_api.dll</Link>
+      <Link>steam_api64.dll</Link>
     </None>
   </ItemGroup>
 

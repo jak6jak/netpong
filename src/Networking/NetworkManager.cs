@@ -25,8 +25,9 @@ public partial class NetworkManager : Node {
   // --- Non-Sensitive Config (Can still be Exported if desired) ---
   [Export] public string ProductName = "MyGodotGame";
   [Export] public string ProductVersion = "1.0";
-  [Export] public LoginCredentialType LoginCredentialType = LoginCredentialType.ExternalAuth;
-  [Export] public string DevAuthURL = "127.0.0.1:9876";
+  // Change login type in the Inspector to switch between Developer, Account Portal, or External Auth based on if build is exported or not
+  public LoginCredentialType LoginCredentialType = LoginCredentialType.ExternalAuth;
+  public string DevAuthURL = "127.0.0.1:9876";
   [Export] public string DeveloperLoginUserName = "DevUser1";
   [Export] public string SteamAppId = "3136980"; // Default Steam App ID, change this to your game's App ID
 
@@ -52,7 +53,7 @@ public partial class NetworkManager : Node {
       Instance = this;
     }
     else {
-      GD.PushWarning("EOS_ByteArray_ToString reported LimitExceeded but returned 0 for buffer size. Assuming empty string result.");
+      GD.PushWarning("Insatnce is already set, destroying this instance.");
 
       QueueFree(); // Or handle appropriately
 
@@ -63,6 +64,18 @@ public partial class NetworkManager : Node {
 
       return;
     }
+
+    //Change LoginCredentialType based on build Type
+    if (OS.HasFeature("steam")) {
+      LoginCredentialType = LoginCredentialType.ExternalAuth;
+    }
+    else if (OS.HasFeature("account")) {
+      LoginCredentialType = LoginCredentialType.AccountPortal;
+    }
+    else {
+      LoginCredentialType = LoginCredentialType.Developer;
+    }
+
 
     var initializeOptions = new Epic.OnlineServices.Platform.InitializeOptions() {
       ProductName = this.ProductName,
@@ -149,7 +162,6 @@ public partial class NetworkManager : Node {
 
       GD.Print($"Using Developer Credentials: ID='{credentials.Id}', Token (URL)='{credentials.Token}'");
     }
-
     else if (LoginCredentialType == LoginCredentialType.AccountPortal) {
       // AccountPortal uses external browser, Id and Token are null initially
       credentials = new Credentials() { Type = LoginCredentialType.AccountPortal, Id = null, Token = null };
