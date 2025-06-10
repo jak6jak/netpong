@@ -20,7 +20,11 @@ public partial class Game : Control {
     // Connect ItemSelected signal directly
     PlayerList.ItemSelected += OnSessionSelected;
 
+    // Connect button press to increment counter for tests
+    CreateGameButton.Pressed += OnCreateGameButtonPressed;
   }
+
+  private void OnCreateGameButtonPressed() => ButtonPresses++;
   private void OnAuthFinished(bool success, string localUserId, string errorMessage) {
     if (!success) {
       GD.PrintErr($"Authentication failed for user: {localUserId}");

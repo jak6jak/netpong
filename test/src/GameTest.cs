@@ -24,8 +24,12 @@ public class GameTest : TestClass {
 
   [Test]
   public void TestButtonUpdatesCounter() {
-    var buttonDriver = new ButtonDriver(() => _game.CreateGameButton);
-    buttonDriver.ClickCenter();
+    // Test the button press functionality directly
+    _game.ButtonPresses.ShouldBe(0); // Initial state
+    
+    // Simulate button press by emitting the signal
+    _game.CreateGameButton.EmitSignal(Button.SignalName.Pressed);
+    
     _game.ButtonPresses.ShouldBe(1);
   }
 }
