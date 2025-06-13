@@ -35,12 +35,11 @@ public partial class Game : Control {
       sessionManager.SessionCreated += OnSessionCreated;
       sessionManager.SessionJoined += OnSessionJoined;
       sessionManager.SessionSearchFinished += OnSessionSearchFinished;
+      sessionManager.PlayerJoined += OnPlayerJoined;
       GD.Print("Connected to Session Manager signals");
       JoinButton.Pressed += OnSearchEOSSessionsPressed;
       CreateGameButton.Pressed += OnCreateEOSSessionPressed;
-
     }
-
   }
   private void OnSessionCreated(bool success, string sessionId, string errorMessage) {
     if (success) {
@@ -124,6 +123,18 @@ public partial class Game : Control {
     }
     else {
       GD.PushError("Session Manager not available");
+    }
+  }
+
+  private void OnPlayerJoined(string playerId, string sessionId) {
+    var sessionManager = SessionManager.Instance;
+    if (sessionManager != null) {
+      // If we are the session owner, register the new player
+      if (sessionManager.IsSessionOwner) {
+        var playerProductId = Epic.OnlineServices.ProductUserId.FromString(playerId);
+        sessionManager.RegisterPlayerInSession(playerProductId);
+        GD.Print($"Registering new player {playerId} in session {sessionId}");
+      }
     }
   }
 }

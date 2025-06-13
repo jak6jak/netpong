@@ -18,7 +18,7 @@ public partial class SessionManager : Node {
   private SessionsInterface? _sessionsInterface;
   private ProductUserId? _localPlayerProductID;
 
-
+  public bool IsSessionOwner => _isSessionOwner;
 
   [Signal]
   public delegate void SessionCreatedEventHandler(bool success, string sessionId, string errorMessage);
@@ -40,6 +40,9 @@ public partial class SessionManager : Node {
   public delegate void PlayerRegisteredEventHandler(bool success, string playerId, string errorMessage);
   [Signal]
   public delegate void PlayerUnregisteredEventHandler(bool success, string playerId, string errorMessage);
+
+  [Signal]
+  public delegate void PlayerJoinedEventHandler(string playerId, string sessionId);
 
 
   public SessionManager() {
@@ -143,7 +146,10 @@ public partial class SessionManager : Node {
     var updateSessionOptions = new UpdateSessionOptions { SessionModificationHandle = sessionModificationHandle };
     _sessionsInterface.UpdateSession(ref updateSessionOptions, null, OnUpdateSessionCompleted);
     GD.Print("UpdateSession (for creation) request sent.");
-    // SessionModificationHandle is consumed by UpdateSession, no need to release it manually.
+
+    //RegisterPlayerInSession(_localPlayerProductID);
+
+
   }
 
   private void OnUpdateSessionCompleted(ref UpdateSessionCallbackInfo data) {
@@ -157,9 +163,8 @@ public partial class SessionManager : Node {
         _isSessionOwner = true; // The creator is the owner
         GD.Print($"Session '{data.SessionName}' (ID: {data.SessionId}) CREATED successfully!");
         EmitSignal(SignalName.SessionCreated, true, data.SessionId.ToString(), "");
-        // As owner, you might want to register yourself if your game logic requires it,
-        // though EOS often handles the owner's presence implicitly for some features.
-        // RegisterPlayerInSession(_localPlayerProductID);
+
+        RegisterPlayerInSession(_localPlayerProductID);
       }
       else {
         GD.Print($"Session '{data.SessionName}' (ID: {data.SessionId}) UPDATED successfully!");
@@ -350,10 +355,7 @@ public partial class SessionManager : Node {
     };
 
     _sessionsInterface.JoinSession(ref joinOptions, null, OnJoinSessionCompleted);
-    //GD.Print($"Attempting to join session: {sessionToJoin.SessionId} with local key '{clientSessionKey}'");
-    // The SessionDetails handle (sessionToJoin) is typically "consumed" or copied by JoinSession.
-    // The original handle from search results remains in _lastSearchResults and is managed there.
-    // If this `sessionToJoin` came from an invite, its specific handling for release is in AcceptSessionInvite.
+    // Registration will be performed after successful join in OnJoinSessionCompleted
   }
   private void OnJoinSessionCompleted(ref JoinSessionCallbackInfo data) {
     if (data.ResultCode == Result.Success) {
@@ -361,7 +363,12 @@ public partial class SessionManager : Node {
       _isSessionOwner = false; // When joining, you are not the owner by default
       GD.Print($"Successfully joined session with local key '{_currentSessionNameClientKey}'!");
       EmitSignal(SignalName.SessionJoined, true, _currentSessionNameClientKey ?? "", "");
-      // An active session is now formed on this client's machine.
+
+      // Register the player after successful join
+      if (_localPlayerProductID != null) {
+        //RegisterPlayerInSession(_localPlayerProductID);
+        EmitSignal(SignalName.PlayerJoined, _localPlayerProductID.ToString(), _currentSessionNameClientKey ?? "");
+      }
     }
     else {
       GD.PushError($"Failed to join session with local key '{_currentSessionNameClientKey}': {data.ResultCode}");
@@ -413,7 +420,7 @@ public partial class SessionManager : Node {
 
   // --- Player Registration (Typically Session Owner Only) ---
   public void RegisterPlayerInSession(ProductUserId? playerToRegister) {
-    if (!_isSessionOwner || string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
+    if (!IsSessionOwner || string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
       GD.PushWarning("Cannot register player: Not session owner or not in a session.");
       EmitSignal(SignalName.PlayerRegistered, false, playerToRegister?.ToString() ?? "", "Not owner or not in session.");
       return;
@@ -461,8 +468,39 @@ public partial class SessionManager : Node {
     }
   }
 
+  public List<ProductUserId> GetPlayersInSession(string sessionID) {
+    var returnlist = new List<ProductUserId>();
+
+
+    CopyActiveSessionHandleOptions sessionDetailsHandle = new CopyActiveSessionHandleOptions {
+      SessionName = sessionID
+    };
+    Result result = _sessionsInterface.CopyActiveSessionHandle(ref sessionDetailsHandle, out var activeSession);
+    if (result == Result.Success && activeSession != null) {
+
+      var options = new ActiveSessionCopyInfoOptions();
+      var registeredUsersCountOptions = new ActiveSessionGetRegisteredPlayerCountOptions();
+      uint playerCount = activeSession.GetRegisteredPlayerCount(ref registeredUsersCountOptions);
+      for (uint i = 0; i < playerCount; i++) {
+        var copyUserOptions = new ActiveSessionGetRegisteredPlayerByIndexOptions {
+          PlayerIndex = i,
+        };
+
+        ProductUserId userId = activeSession.GetRegisteredPlayerByIndex(ref copyUserOptions);
+
+        // The returned ProductUserId will be valid if the call is successful.
+        // An invalid ID means something went wrong.
+        if (userId != null && userId.IsValid()) {
+          returnlist.Add(userId);
+        }
+      }
+      activeSession.Release();
+    }
+    return returnlist;
+  }
+
   public void UnregisterPlayerFromSession(ProductUserId? playerToUnregister) {
-    if (!_isSessionOwner || string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
+    if (string.IsNullOrEmpty(_currentSessionNameClientKey) || _sessionsInterface == null) {
       GD.PushWarning("Cannot unregister player: Not session owner or not in a session.");
       EmitSignal(SignalName.PlayerUnregistered, false, playerToUnregister?.ToString() ?? "", "Not owner or not in session.");
       return;
@@ -568,6 +606,7 @@ public partial class SessionManager : Node {
     };
     // Pass inviteId as client data to handle releasing the original SessionDetails handle from _pendingInvitesDetails in the callback
     _sessionsInterface.JoinSession(ref joinOptions, inviteId, OnInviteJoinSessionCompleted);
+    // Registration will be performed after successful join in OnInviteJoinSessionCompleted
   }
 
   private void OnInviteJoinSessionCompleted(ref JoinSessionCallbackInfo data) {
@@ -578,6 +617,10 @@ public partial class SessionManager : Node {
       _isSessionOwner = false; // Joined via invite, so not the owner
       GD.Print($"Successfully joined session from invite '{inviteId}'!");
       EmitSignal(SignalName.SessionInviteAccepted, true, _currentSessionId ?? "", "");
+      // Register the player after successful join
+      if (_localPlayerProductID != null) {
+        RegisterPlayerInSession(_localPlayerProductID);
+      }
     }
     else {
       GD.PushError($"Failed to join session from invite '{inviteId}': {data.ResultCode}");
